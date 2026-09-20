@@ -18,6 +18,13 @@ DATA_DIR: Path = PROJECT_ROOT / "data"
 RAW_DATA_DIR: Path = DATA_DIR / "raw"
 REPORTS_DIR: Path = PROJECT_ROOT / "reports"
 
+# Stage 1 outputs. All three are generated and gitignored: a quarantine that
+# had to be committed would mean the pipeline lost the ability to reproduce it.
+DIRTY_DATA_DIR: Path = DATA_DIR / "dirty"
+CLEAN_DATA_DIR: Path = DATA_DIR / "clean"
+QUARANTINE_DIR: Path = DATA_DIR / "quarantine"
+VALIDATION_REPORTS_DIR: Path = REPORTS_DIR / "validation"
+
 # --------------------------------------------------------------------------
 # Source dataset
 #

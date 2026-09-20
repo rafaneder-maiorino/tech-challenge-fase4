@@ -3,7 +3,8 @@
 # fresh clone. Python version and dependencies come from pyproject.toml and
 # uv.lock; .python-version pins the interpreter.
 
-.PHONY: help install download inspect lint test
+.PHONY: help install download inspect lint test \
+        validate-bad-batch validate-clean-batch
 
 # Default target: `make` with no arguments lists what exists.
 help:
@@ -11,6 +12,8 @@ help:
 	@echo "  make install   - cria o ambiente e instala as dependências (uv sync)"
 	@echo "  make download  - baixa o dataset bruto do OpenML e verifica o checksum"
 	@echo "  make inspect   - gera reports/inspection.md a partir do dado bruto"
+	@echo "  make validate-bad-batch   - gera um lote com defeitos e mostra o portão BLOQUEANDO (sai != 0)"
+	@echo "  make validate-clean-batch - valida um lote só com alertas: ACEITO COM AVISOS (sai 0)"
 	@echo "  make lint      - roda o ruff (lint + formatação)"
 	@echo "  make test      - roda a suíte de testes (pytest)"
 
@@ -36,3 +39,39 @@ lint:
 
 test:
 	uv run pytest -q
+
+# --------------------------------------------------------------------------
+# Demonstração do portão de qualidade da etapa 1.
+#
+# Os dois alvos percorrem exatamente o mesmo caminho — mesmo gerador, mesmo
+# contrato, mesmo script de ingestão — e só o conteúdo do lote muda. É isso que
+# mostra que o portão discrimina, em vez de simplesmente reprovar tudo.
+#
+# O carimbo de data casa com o nome que scripts/make_dirty_batch.py escreve.
+# --------------------------------------------------------------------------
+BATCH_STAMP := $(shell date +%Y%m%d)
+
+# Termina com código != 0 DE PROPÓSITO: é o pipeline parando diante de um lote
+# que não pode chegar ao modelo. O `make` reporta "Error 1" logo abaixo, e essa
+# é a demonstração.
+validate-bad-batch:
+	uv run python scripts/make_dirty_batch.py --mode dirty
+	@uv run python -m credit_monitor.pipeline.ingest \
+		data/dirty/batch_$(BATCH_STAMP).parquet ; \
+	status=$$? ; \
+	echo "" ; \
+	echo ">>> ingestão saiu com código $$status — pipeline interrompido, como esperado" ; \
+	echo ">>> quarentena: data/quarantine/batch_$(BATCH_STAMP)/" ; \
+	echo ">>> relatório : reports/validation/batch_$(BATCH_STAMP).html" ; \
+	exit $$status
+
+# Mesmo caminho, lote só com violações de alerta. Tem de sair 0.
+validate-clean-batch:
+	uv run python scripts/make_dirty_batch.py --mode clean
+	@uv run python -m credit_monitor.pipeline.ingest \
+		data/clean/clean_batch_$(BATCH_STAMP).parquet ; \
+	status=$$? ; \
+	echo "" ; \
+	echo ">>> ingestão saiu com código $$status — lote aceito, alertas registrados" ; \
+	echo ">>> relatório : reports/validation/clean_batch_$(BATCH_STAMP).html" ; \
+	exit $$status
