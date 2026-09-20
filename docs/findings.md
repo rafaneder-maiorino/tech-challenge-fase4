@@ -168,3 +168,162 @@ dicionários por igualdade — não passaria.
 qualidade construída contando suas entradas está contando colunas, e o erro é
 proporcional à largura da tabela: neste projeto, 11 vezes. Em um relatório para
 auditoria, um fator de 11 não é um detalhe de apresentação.
+
+---
+
+<!-- BEGIN: correlation-recheck -->
+
+## 4. As sentinelas fabricavam a correlação de 0,99 entre os contadores
+
+**Etapa 1 · 2026-09-20 · `scripts/recheck_correlation.py`**
+
+### A leitura suspeita
+
+A matriz de §10 da inspeção mostra os três contadores de inadimplência
+correlacionados entre si a 0,98-0,99, enquanto cada um correlaciona apenas
+0,10-0,13 com o alvo. Ao pé da letra: três medições da mesma variável, e todas
+fracas.
+
+A suspeita era de que 0,18% das linhas produzissem o número. Inspeção §6
+encontrou 269 registros com os códigos 96/98 nos três contadores **ao mesmo
+tempo**, e §4 dá a cada contador desvio padrão ~4,19 contra média ~0,42 — uma
+dispersão que só faz sentido se alguns poucos valores perto de 98 estiverem
+fazendo o trabalho.
+
+### As duas matrizes
+
+**Dado completo (150,000 linhas)**
+
+| | 30-59d | 90d+ | 60-89d |
+|---|---|---|---|
+| **30-59d** | 1.0000 | 0.9836 | 0.9870 |
+| **90d+** | 0.9836 | 1.0000 | 0.9928 |
+| **60-89d** | 0.9870 | 0.9928 | 1.0000 |
+
+**Sem as 269 linhas de sentinela (149,731 linhas)**
+
+| | 30-59d | 90d+ | 60-89d |
+|---|---|---|---|
+| **30-59d** | 1.0000 | 0.2181 | 0.3059 |
+| **90d+** | 0.2181 | 1.0000 | 0.2946 |
+| **60-89d** | 0.3059 | 0.2946 | 1.0000 |
+
+### Dispersão, antes e depois
+
+| contador | média | desvio | máx | média (s/ sent.) | desvio (s/ sent.) | máx |
+|---|---|---|---|---|---|---|
+| `30-59d` | 0.4210 | 4.1928 | 98 | 0.2458 | 0.6978 | 13 |
+| `90d+` | 0.2660 | 4.1693 | 98 | 0.0905 | 0.4855 | 17 |
+| `60-89d` | 0.2404 | 4.1552 | 98 | 0.0648 | 0.3301 | 11 |
+
+**A hipótese se confirmou**, e com folga. A correlação média entre os contadores cai de
+**0.9878** para **0.2729** — uma queda de
+**72%** — ao remover **269 linhas**, que são
+**0.18%** do dataset. Os 0,18% de linhas produziam
+sozinhos quase toda a covariância entre as três colunas.
+
+A aritmética explica: a correlação de Pearson é uma razão de covariâncias, e
+covariância é uma soma sobre linhas ponderada pela distância até a média. Com
+média ~0,42 e desvio ~4,19, um valor 98 está a cerca de 23 desvios padrão da
+média. Duzentas e sessenta e nove linhas nessa posição, movendo-se juntas nas
+três colunas ao mesmo tempo, dominam a soma inteira.
+
+### O efeito que ninguém previu
+
+A hipótese dizia respeito à correlação **entre os contadores**. O que apareceu
+junto foi mais importante: a correlação de cada contador **com o alvo mais que
+dobra** quando as sentinelas saem.
+
+| contador | corr. com alvo (completo) | sem sentinelas | variação |
+|---|---|---|---|
+| `30-59d` | 0.1256 | 0.2745 | 2.19x |
+| `90d+` | 0.1172 | 0.3145 | 2.68x |
+| `60-89d` | 0.1023 | 0.2681 | 2.62x |
+
+As mesmas 269 linhas faziam duas coisas ao mesmo tempo: fabricavam uma
+colinearidade de 0,99 que não existe, e **escondiam** o poder preditivo real
+dos três contadores. Elas carregam o código 98 — o maior valor possível na
+coluna — com uma taxa de inadimplência de 54,65%, mas são poucas demais para
+puxar a correlação para cima e numerosas demais para não distorcer a escala.
+O resultado é uma leitura em que os contadores parecem redundantes e fracos,
+quando na verdade são as variáveis mais fortes do conjunto.
+
+### Consequência prática
+
+A leitura ingênua de §10 — "as três colunas são a mesma coisa, e nenhuma
+prediz muito" — levaria a descartar duas delas e a desconfiar da terceira. A
+leitura correta é o oposto: são três sinais distintos
+(correlação entre si de 0.27, não de 0.99) e são os
+melhores preditores disponíveis. O pré-processamento remove as sentinelas
+antes do treino, então o modelo já vê a versão da direita; esta seção existe
+para registrar que a versão da esquerda é uma armadilha de leitura, não um
+fato sobre os clientes.
+
+<!-- END: correlation-recheck -->
+
+---
+
+## 5. Tratar o desbalanceamento deixa as probabilidades piores que um chute fixo
+
+**Etapa 1 · 2026-09-20 · `src/credit_monitor/models/train.py`**
+
+### O que aconteceu
+
+O tratamento padrão para uma classe positiva de 6,68% (inspeção §2) é
+reponderar: `class_weight="balanced"` na regressão logística,
+`scale_pos_weight = 13,974` no XGBoost. Feito isso, o AUC-ROC fica em 0,8584 e
+o KS em 0,5677 — números bons. O Brier fica em **0,1356**.
+
+O problema é a referência. Um modelo que ignora as features e responde sempre
+a taxa-base 6,68% tem Brier `p(1-p)` = **0,0623**. **O modelo com AUC de 0,86
+tem Brier mais que o dobro do pior modelo concebível.**
+
+### Por que
+
+Reponderar é uma mentira deliberada sobre a distribuição a priori: diz ao
+estimador que positivos são ~14 vezes mais frequentes do que são. O modelo
+aprende a ordenar bem e a reportar probabilidades infladas por
+aproximadamente esse fator.
+
+As três métricas reagem de formas diferentes, e é isso que torna o efeito
+invisível em quase todo relatório:
+
+| métrica | sensível a transformação monotônica? | efeito da reponderação |
+|---|---|---|
+| AUC-ROC | não | praticamente nenhum |
+| KS | não | praticamente nenhum |
+| Brier | **sim** | **duplica** |
+
+AUC e KS só enxergam a *ordem* dos scores, e reponderar não muda a ordem. Um
+painel que acompanhe só esses dois nunca vê o problema.
+
+### Os números
+
+Calibração isotônica ajustada numa partição separada (nem treino, nem
+validação):
+
+| modelo | AUC s/ calib. | AUC calib. | KS s/ calib. | KS calib. | Brier s/ calib. | Brier calib. |
+|---|---|---|---|---|---|---|
+| xgboost | 0,8584 | 0,8579 | 0,5677 | 0,5649 | 0,1356 | **0,0496** |
+| logistic_regression | 0,8493 | 0,8489 | 0,5466 | 0,5440 | 0,1461 | **0,0499** |
+
+A calibração custa **0,0005 de AUC** e melhora o Brier em **2,7x**.
+
+### Como está resolvido
+
+O conjunto `reference` é particionado em **três** partes, não duas: treino
+(60%) ajusta o modelo reponderado, calibração (20%) ajusta o mapa isotônico
+sobre ele, e validação (20%) é de onde saem os números reportados. Ajustar o
+calibrador nas mesmas linhas em que ele é medido reportaria a memória do
+calibrador, não o comportamento dele.
+
+O modelo registrado com o alias `champion` é o calibrado.
+
+### Por que isso importa para as próximas etapas
+
+A etapa 3 acompanha o Brier por lote como sinal de degradação. Esse
+acompanhamento pressupõe que o Brier do baseline signifique alguma coisa: com
+0,1356 o indicador teria partido de um ponto em que o modelo já era pior que
+um chute fixo, e qualquer variação seria ruído sobre um número sem sentido.
+Um sinal de degradação calibrado em cima de um modelo descalibrado mede a
+calibração, não a degradação.
