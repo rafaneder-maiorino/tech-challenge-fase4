@@ -8,6 +8,7 @@ rule, would fail the moment the source legitimately changed, and would need the
 dataset present to run at all.
 """
 
+import numpy as np
 import pandas as pd
 
 from credit_monitor.constants import TARGET_COLUMN
@@ -64,6 +65,48 @@ def make_frame(n_rows: int = 15, n_positive: int = 1) -> pd.DataFrame:
             "NumberRealEstateLoansOrLines": [i % 3 for i in index],
             "NumberOfTime60-89DaysPastDueNotWorse": [(i + 1) % 2 for i in index],
             "NumberOfDependents": [float(i % 4) for i in index],
+        }
+    )
+    return frame.astype(_DTYPES)[list(EXPECTED_COLUMNS)]
+
+
+def make_random_frame(
+    n_rows: int = 300,
+    n_positive: int = 20,
+    seed: int = 20260920,
+) -> pd.DataFrame:
+    """A larger contract-valid frame, drawn from seeded continuous ranges.
+
+    :func:`make_frame` walks its values with the row index, which keeps small
+    frames readable but stops being valid past ~90 rows — the age would leave
+    the plausible range and the utilisation would cross 1. Anything that needs
+    hundreds of rows (a stratified split, a preprocessing pass) uses this
+    instead: every column is drawn inside the contract's bounds, and the
+    continuous columns make exact duplicate rows effectively impossible, so a
+    test can add one deliberately and know it is the only one.
+    """
+    rng = np.random.default_rng(seed)
+    labels = np.array([POSITIVE_LABEL] * n_positive + ["0"] * (n_rows - n_positive))
+    rng.shuffle(labels)
+    frame = pd.DataFrame(
+        {
+            TARGET_COLUMN: pd.Categorical(
+                labels, categories=sorted(TARGET_LABELS), ordered=True
+            ),
+            # Strictly inside [0, 1] (§8) and continuous, so rows stay distinct.
+            "RevolvingUtilizationOfUnsecuredLines": rng.uniform(0.0, 0.99, n_rows),
+            "age": rng.integers(21, 90, n_rows),
+            "NumberOfTime30-59DaysPastDueNotWorse": rng.integers(0, 4, n_rows),
+            # Strictly below the model contract's ceiling of 2 (§9).
+            "DebtRatio": rng.uniform(0.01, 1.9, n_rows),
+            # Strictly positive, so the raw frame has no missing-income rows
+            # until a test creates them.
+            "MonthlyIncome": rng.uniform(1200.0, 20000.0, n_rows),
+            "NumberOfOpenCreditLinesAndLoans": rng.integers(1, 20, n_rows),
+            "NumberOfTimes90DaysLate": rng.integers(0, 3, n_rows),
+            "NumberRealEstateLoansOrLines": rng.integers(0, 4, n_rows),
+            "NumberOfTime60-89DaysPastDueNotWorse": rng.integers(0, 3, n_rows),
+            "NumberOfDependents": rng.integers(0, 5, n_rows).astype("float64"),
         }
     )
     return frame.astype(_DTYPES)[list(EXPECTED_COLUMNS)]
