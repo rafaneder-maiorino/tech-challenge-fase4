@@ -73,6 +73,15 @@ ignore = [
     "D213",  # conflicts with D212 (summary on the second line)
 ]
 
+[tool.ruff.lint.pep8-naming]
+# pandera's @check and @dataframe_check wrap the decorated function in a
+# classmethod, so `cls` is the correct first argument. Declared here instead of
+# a `# noqa: N805` on every validation rule in src/credit_monitor/contracts.
+classmethod-decorators = [
+    "pandera.pandas.check",
+    "pandera.pandas.dataframe_check",
+]
+
 [tool.ruff.lint.pydocstyle]
 convention = "google"
 
