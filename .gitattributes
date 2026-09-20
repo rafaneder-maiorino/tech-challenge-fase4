@@ -1,0 +1,61 @@
+# Line endings are fixed by the repository, not by whoever clones it.
+#
+# Reason: on Windows the common default is `core.autocrlf=true`, which converts
+# to CRLF on checkout. Files that only Linux reads — shell scripts, YAML stacks,
+# the Makefile — break with CRLF, and the error surfaces far from its cause.
+# Relying on the evaluator knowing to clone with `core.autocrlf=false` is
+# fragile. With this file the result is the same on any machine, regardless of
+# `core.autocrlf` and `core.eol`.
+#
+# ORDER MATTERS: the last matching rule wins. Binaries come first so that a
+# text file with a binary-looking suffix is still caught by a later rule.
+
+# Default: let git decide what is text and normalise it to LF in the repository.
+* text=auto
+
+# --------------------------------------------------------------------------
+# Binaries: never convert, never attempt a line diff.
+# Nothing here is versioned today (data/ and reports/ are generated and
+# ignored), but the pipeline produces them, and the rule prevents corruption
+# should any of them ever be committed.
+# --------------------------------------------------------------------------
+*.parquet   -text
+*.joblib    -text
+*.onnx      -text
+*.png       -text
+*.jpg       -text
+*.jpeg      -text
+*.ico       -text
+*.gif       -text
+*.pdf       -text
+
+# --------------------------------------------------------------------------
+# Text forced to LF on checkout, on every operating system.
+# --------------------------------------------------------------------------
+*.py        text eol=lf
+*.sh        text eol=lf
+*.yml       text eol=lf
+*.yaml      text eol=lf
+*.json      text eol=lf
+*.toml      text eol=lf
+*.md        text eol=lf
+*.txt       text eol=lf
+*.cfg       text eol=lf
+*.ini       text eol=lf
+*.lock      text eol=lf
+*.html      text eol=lf
+*.csv       text eol=lf
+
+# Fixed names, or no extension at all. The Makefile is the one that bites
+# first: a recipe line ending in CRLF fails with a message that never mentions
+# line endings.
+Makefile            text eol=lf
+Dockerfile          text eol=lf
+Dockerfile.*        text eol=lf
+.dockerignore       text eol=lf
+.gitignore          text eol=lf
+.gitattributes      text eol=lf
+.gitkeep            text eol=lf
+.python-version     text eol=lf
+.env.example        text eol=lf
+*.env.example       text eol=lf

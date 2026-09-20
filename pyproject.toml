@@ -1,0 +1,88 @@
+[project]
+name = "credit-monitor"
+version = "0.1.0"
+description = "Monitoramento de modelo de Credit Scoring — Tech Challenge FIAP Fase 4"
+readme = "README.md"
+requires-python = ">=3.11,<3.12"
+dependencies = [
+    # Data handling and the raw parquet format.
+    "pandas>=2.2",
+    "numpy>=1.26",
+    "pyarrow>=16.0",
+    # Dataset source: OpenML id 45577 (Give-Me-Some-Credit).
+    "openml>=0.15",
+    # Statistics for the drift tests (KS, chi-square) of stage 2.
+    "scipy>=1.13",
+    "scikit-learn>=1.5",
+    # Data contracts (stage 1) and drift reports (stage 2).
+    "pandera>=0.20",
+    "evidently>=0.4.40",
+    # Observability (stage 3).
+    "mlflow>=2.16",
+    "prometheus-client>=0.21",
+    # Plots for the custom report panels.
+    "matplotlib>=3.9",
+    # Configuration files (thresholds, contract parameters).
+    "pyyaml>=6.0",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=8.3",
+    "ruff>=0.6",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+# src layout: the importable package is src/credit_monitor.
+packages = ["src/credit_monitor"]
+
+[tool.ruff]
+# 88 is what the code is written to; ruff format and the E501 lint rule share
+# this number so the two never disagree.
+line-length = 88
+target-version = "py311"
+# Generated or third-party material: never linted, never rewritten.
+extend-exclude = ["data", "docs", "mlruns", "reports"]
+
+[tool.ruff.lint]
+# Beyond ruff's default (E4/E7/E9 + F): import order, modernisation, bug
+# patterns, comprehension and naming hygiene, plus docstring presence on the
+# public surface. Deliberately not the full rule set — the point is a gate that
+# catches real defects, not a style debate in code review.
+select = [
+    "E",    # pycodestyle errors
+    "W",    # pycodestyle warnings
+    "F",    # pyflakes
+    "I",    # isort
+    "N",    # pep8-naming
+    "UP",   # pyupgrade
+    "B",    # flake8-bugbear
+    "C4",   # flake8-comprehensions
+    "SIM",  # flake8-simplify
+    "D",    # pydocstyle
+    "RUF",  # ruff-specific
+    "T20",  # flake8-print — no print() in src/, see per-file-ignores
+    "ANN",  # flake8-annotations — type hints on every function
+]
+ignore = [
+    "D203",  # conflicts with D211 (blank line before class docstring)
+    "D213",  # conflicts with D212 (summary on the second line)
+]
+
+[tool.ruff.lint.pydocstyle]
+convention = "google"
+
+[tool.ruff.lint.per-file-ignores]
+# Test names and fixtures document themselves; a docstring per assertion adds
+# noise without adding information.
+"tests/**" = ["D103"]
+# scripts/ is the operator-facing surface: it reports to the terminal, so
+# print() is the point there. Type hints (ANN) still apply.
+"scripts/**" = ["D", "T20"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

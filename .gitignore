@@ -1,0 +1,32 @@
+# Ambientes virtuais
+.venv/
+
+# Dados brutos (baixados do OpenML) e derivados — regeneráveis via `make download`.
+# O parquet é grande e imutável; o checksum versionado em
+# src/credit_monitor/constants.py é o que garante a reprodutibilidade.
+#
+# A barra inicial ancora o padrão na raiz do repositório. Sem ela, `data/`
+# casaria também com `src/credit_monitor/data/` — o pacote de ingestão — e o
+# código sumiria do commit sem aviso nenhum.
+/data/
+
+# Rastreamento local do MLflow (gerado em runtime).
+/mlruns/
+
+# Relatórios gerados (inspeção, drift, HTML do Evidently) — regeneráveis.
+/reports/
+
+# Material de referência do curso: PDFs das aulas e o enunciado.
+# Nunca versionar — é conteúdo de terceiros.
+docs/_reference/
+
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+.coverage
+coverage.xml
+
+# macOS
+.DS_Store
