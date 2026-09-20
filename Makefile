@@ -4,7 +4,8 @@
 # uv.lock; .python-version pins the interpreter.
 
 .PHONY: help install download inspect lint test \
-        validate-bad-batch validate-clean-batch
+        validate-bad-batch validate-clean-batch \
+        prepare train recheck-correlation mlflow-ui
 
 # Default target: `make` with no arguments lists what exists.
 help:
@@ -14,6 +15,10 @@ help:
 	@echo "  make inspect   - gera reports/inspection.md a partir do dado bruto"
 	@echo "  make validate-bad-batch   - gera um lote com defeitos e mostra o portão BLOQUEANDO (sai != 0)"
 	@echo "  make validate-clean-batch - valida um lote só com alertas: ACEITO COM AVISOS (sai 0)"
+	@echo "  make prepare   - limpa o dado bruto e grava reference + holdout"
+	@echo "  make train     - treina os baselines e registra o campeão no MLflow"
+	@echo "  make recheck-correlation - recalcula a correlação dos contadores e registra o achado"
+	@echo "  make mlflow-ui - abre a UI do MLflow (porta 5001)"
 	@echo "  make lint      - roda o ruff (lint + formatação)"
 	@echo "  make test      - roda a suíte de testes (pytest)"
 
@@ -75,3 +80,27 @@ validate-clean-batch:
 	echo ">>> ingestão saiu com código $$status — lote aceito, alertas registrados" ; \
 	echo ">>> relatório : reports/validation/clean_batch_$(BATCH_STAMP).html" ; \
 	exit $$status
+
+# --------------------------------------------------------------------------
+# Etapa 1 — preparação do dado e modelo baseline.
+# --------------------------------------------------------------------------
+
+# Limpa, divide em reference/holdout e valida os dois contra o ModelInputSchema.
+# A validação roda dentro do pipeline, não só nos testes.
+prepare:
+	uv run python scripts/prepare_data.py
+
+# Depende de `make prepare`. Nunca toca no holdout: aquele conjunto é o grupo
+# de controle do teste A/A da etapa 2.
+train:
+	uv run python scripts/train_baseline.py
+
+# Recalcula a matriz de correlação dos contadores com e sem as sentinelas e
+# reescreve a seção correspondente de docs/findings.md.
+recheck-correlation:
+	uv run python scripts/recheck_correlation.py
+
+# Porta 5001: no macOS a 5000 é do AirPlay Receiver, que responde à requisição
+# em vez de falhar, então o MLflow parece subir e serve um 403 alheio.
+mlflow-ui:
+	uv run mlflow ui --backend-store-uri sqlite:///mlflow.db --port 5001
