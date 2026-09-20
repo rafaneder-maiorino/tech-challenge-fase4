@@ -1,0 +1,64 @@
+# Portão de qualidade do repositório: o mesmo `make lint` e `make test` que
+# rodam na máquina de quem desenvolve, rodando também em cada push e cada PR
+# para a main. Um alvo do Makefile por passo, sem reimplementar nenhum comando
+# aqui — um CI que chama `ruff` e `pytest` direto começa a divergir do Makefile
+# no dia em que um dos dois muda.
+#
+# Um job só, de propósito. Isto é um portão de qualidade, não uma matriz de
+# build: o projeto fixa um interpretador em .python-version e um sistema
+# operacional, e testar combinações que ninguém usa só gasta minuto e atenção.
+#
+# `make download` NÃO roda aqui. A suíte inteira é construída com frames feitos
+# à mão em tests/conftest.py e nunca lê data/raw/gmsc.parquet: um teste que
+# validasse o arquivo real afirmaria o dado de hoje em vez da regra. Manter o
+# CI sem rede é o que garante que essa propriedade continue verdadeira — se
+# algum teste passar a depender do parquet, ele falha aqui, que é exatamente
+# onde deve falhar.
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+# Um push seguido de outro na mesma ref cancela a execução anterior: o
+# resultado que importa é o do último commit.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  quality-gate:
+    name: lint + test
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Instalar uv com cache do lock
+        uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+          # O cache é invalidado quando (e só quando) o lock muda.
+          cache-dependency-glob: uv.lock
+
+      - name: Instalar o Python fixado em .python-version
+        run: uv python install
+
+      # --locked falha se uv.lock estiver desatualizado em relação ao
+      # pyproject.toml, em vez de resolver de novo em silêncio. O CI tem de
+      # testar o ambiente que está commitado, não um parecido com ele.
+      - name: Sincronizar dependências
+        run: uv sync --locked
+
+      - name: make lint
+        run: make lint
+
+      - name: make test
+        run: make test
