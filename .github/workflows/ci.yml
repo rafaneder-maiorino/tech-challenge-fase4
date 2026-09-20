@@ -39,10 +39,13 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
+      # Versão exata, não a maior tag flutuante: o setup-uv parou de publicar
+      # tags de major flutuantes depois da v7, e a v7 ainda roda em Node 20, que
+      # o runner já anuncia como descontinuado.
       - name: Instalar uv com cache do lock
-        uses: astral-sh/setup-uv@v6
+        uses: astral-sh/setup-uv@v10.1.0
         with:
           enable-cache: true
           # O cache é invalidado quando (e só quando) o lock muda.
