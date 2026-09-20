@@ -13,8 +13,18 @@
 # Rastreamento local do MLflow (gerado em runtime).
 /mlruns/
 
-# Relatórios gerados (inspeção, drift, HTML do Evidently) — regeneráveis.
-/reports/
+# Relatórios gerados (drift, HTML do Evidently, validação de lote) — regeneráveis.
+#
+# O padrão é `/reports/*`, com barra-asterisco, e não `/reports/`. A diferença
+# não é cosmética: excluir o diretório faz o git nunca descer nele, e nenhuma
+# negação abaixo consegue trazer um arquivo de volta. Ignorando o *conteúdo*, a
+# exceção seguinte funciona.
+/reports/*
+
+# Exceção: a inspeção é a única fonte dos números que justificam cada regra dos
+# contratos de dados. Os docstrings citam suas seções (§1 a §10), então quem
+# clona o repositório tem de conseguir lê-la sem antes baixar 3,3 MB do OpenML.
+!/reports/inspection.md
 
 # Material de referência do curso: PDFs das aulas e o enunciado.
 # Nunca versionar — é conteúdo de terceiros.
