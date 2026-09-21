@@ -5,7 +5,7 @@
 
 .PHONY: help install download inspect lint test \
         validate-bad-batch validate-clean-batch \
-        prepare train recheck-correlation mlflow-ui simulate
+        prepare train recheck-correlation mlflow-ui simulate drift-reports publish-reports
 
 # Default target: `make` with no arguments lists what exists.
 help:
@@ -20,6 +20,8 @@ help:
 	@echo "  make recheck-correlation - recalcula a correlação dos contadores e registra o achado"
 	@echo "  make mlflow-ui - abre a UI do MLflow (porta 5001)"
 	@echo "  make simulate  - gera seis meses de drift, pontua e escreve o resumo"
+	@echo "  make drift-reports - gera os relatórios de drift (em reports/evidently/_build, ignorado)"
+	@echo "  make publish-reports - publica o conjunto curado no repositório (ato deliberado)"
 	@echo "  make lint      - roda o ruff (lint + formatação)"
 	@echo "  make test      - roda a suíte de testes (pytest)"
 
@@ -110,3 +112,19 @@ mlflow-ui:
 # `make prepare` (para o holdout) e de `make train` (para o alias champion).
 simulate:
 	uv run python scripts/simulate_production.py
+
+# Depende de `make simulate` (para os lotes) e de `make train` (para o campeão).
+#
+# Escreve em reports/evidently/_build/, que é ignorado. Nunca toca no HTML
+# versionado: o Evidently nomeia a variável JavaScript do relatório com um UUID
+# aleatório a cada execução, então duas gerações do MESMO dado diferem em ~2.300
+# posições de byte num arquivo de 4 MB. Gerar direto no caminho versionado faria
+# de toda regeneração de rotina um diff de seis arquivos de 4 MB com os mesmos
+# números dentro.
+drift-reports:
+	uv run python scripts/drift_reports.py
+
+# O ÚNICO alvo que mexe em HTML versionado. Publicar é ato deliberado — fim de
+# etapa, entrega final —, nunca efeito colateral de olhar um relatório.
+publish-reports:
+	uv run python scripts/publish_reports.py
