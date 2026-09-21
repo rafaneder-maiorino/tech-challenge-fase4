@@ -327,3 +327,151 @@ acompanhamento pressupõe que o Brier do baseline signifique alguma coisa: com
 um chute fixo, e qualquer variação seria ruído sobre um número sem sentido.
 Um sinal de degradação calibrado em cima de um modelo descalibrado mede a
 calibração, não a degradação.
+
+---
+
+## 6. O teto de utilização: a correlação de -0,00 era a mesma armadilha do achado 4
+
+**Etapa 1 · 2026-09-21 · `src/credit_monitor/data/preprocess.py`**
+
+### O erro
+
+O teto de `RevolvingUtilizationOfUnsecuredLines` foi fixado em **1,0** com a
+seguinte justificativa, escrita no próprio parâmetro:
+
+> inspeção §10 põe a correlação linear entre esta coluna e o alvo em **-0,00**,
+> então as 3.080 linhas em disputa carregam quase nenhum sinal a perder.
+
+Essa frase foi escrita no mesmo dia, no mesmo repositório, em que o achado 4
+documentou que a correlação de Pearson nesse dataset é dominada por outliers e
+não deve ser lida ao pé da letra. A coluna tem média 6,05, desvio **249,76** e
+máximo **50.708** (§4) — exatamente o regime que o achado 4 descreve. A
+justificativa citava como evidência o número que o achado ao lado acabara de
+invalidar.
+
+### As três correlações
+
+| subconjunto | n | Pearson | Spearman | AUC univariada |
+|---|---|---|---|---|
+| (a) dado completo | 150.000 | **-0,0018** | 0,2404 | 0,7778 |
+| (b) excluindo > 10 | 149.759 | **+0,2816** | 0,2411 | 0,7786 |
+| (c) excluindo > 1 | 146.679 | +0,2494 | 0,2129 | 0,7588 |
+
+Remover **241 linhas** (0,16%) faz o Pearson trocar de sinal e ir de zero a
++0,28. O Spearman, que é de posto e portanto imune à cauda, marcava **0,2404**
+desde o começo: a relação real estava visível todo esse tempo em qualquer
+estatística robusta. E a coluna sozinha tem **AUC de 0,7778** — não é uma
+variável fraca, é uma das mais fortes do conjunto.
+
+### As taxas de inadimplência por faixa
+
+Contra a taxa-base de **6,68%**:
+
+| faixa | linhas | % do dado | inadimplência | vs base |
+|---|---|---|---|---|
+| ≤ 1 | 146.679 | 97,79% | 5,99% | 0,90x |
+| **(1, 10]** | **3.080** | **2,05%** | **39,61%** | **5,93x** |
+| > 10 | 241 | 0,16% | 7,05% | 1,06x |
+
+Dentro da faixa em disputa:
+
+| faixa | linhas | inadimplência | vs base |
+|---|---|---|---|
+| (1, 2] | 2.950 | 40,10% | 6,00x |
+| (2, 3] | 79 | 31,65% | 4,73x |
+| (3, 5] | 38 | 23,68% | 3,54x |
+| (5, 10] | 13 | 23,08% | 3,45x |
+
+A coluna tem **uma** região altamente discriminante e é justamente a que um
+teto de 1,0 achata. As linhas acima de 10 inadimplem a 7,05% — indistinguível
+da taxa-base, consistente com serem artefato, e é essa a cauda que merece
+winsorização.
+
+### O retreino
+
+Mesma semente, mesmo pipeline, só o teto muda. As contagens diferem em 11
+linhas (147.349 contra 147.360): achatar em 1,0 colapsa 11 linhas a mais em
+duplicatas, o que é um custo adicional pequeno mas real do teto baixo.
+
+| teto | modelo | AUC-ROC | KS | Brier |
+|---|---|---|---|---|
+| 1,0 | xgboost | 0,8579 | 0,5649 | 0,0496 |
+| 10,0 | xgboost | 0,8561 | 0,5636 | 0,0499 |
+| 1,0 | logistic_regression | 0,8489 | 0,5440 | 0,0499 |
+| 10,0 | logistic_regression | 0,8491 | 0,5451 | 0,0504 |
+
+O teto de 1,0 sai 0,0018 de AUC à frente no XGBoost e 0,0002 **atrás** na
+regressão logística. Direções opostas nas duas famílias é o primeiro sinal de
+que a diferença é ruído.
+
+### Quanto é ruído
+
+Cinco sementes, mesmo dado, só a partição interna muda:
+
+| semente | AUC teto 1,0 | AUC teto 10,0 | delta |
+|---|---|---|---|
+| 20260920 | 0,8579 | 0,8561 | -0,0018 |
+| 7 | 0,8604 | 0,8542 | -0,0062 |
+| 1234 | 0,8560 | 0,8687 | +0,0127 |
+| 99 | 0,8659 | 0,8626 | -0,0033 |
+| 555 | 0,8670 | 0,8664 | -0,0005 |
+
+- teto 1,0: média **0,8614**, desvio 0,0049, amplitude 0,0110
+- teto 10,0: média **0,8616**, desvio 0,0063, amplitude 0,0145
+- delta médio: **+0,0002**, com desvio de 0,0073
+
+A diferença de 0,0018 da execução única é **quatro vezes menor que o desvio do
+próprio delta**, e na média das cinco sementes o teto de 10,0 sai à frente por
+0,0002. **As métricas de modelo não distinguem os dois tetos.**
+
+### Por que o empate nas métricas não absolve o teto de 1,0
+
+Vale entender por que achatar não custa AUC, porque a resposta não é "a cauda
+não tem sinal" — ela tem, 39,61% contra 6,68%. É que achatar em 1,0 coloca
+todas as 3.321 linhas exatamente em 1,0, e uma árvore ainda separa esse grupo
+com um único corte em `utilization >= 1`. A informação "está acima do limite"
+sobrevive ao achatamento. O que se perde é a **gradação dentro** da cauda — e
+essa gradação é não monotônica (40,10% → 31,65% → 23,68% → 23,08%), ou seja,
+quase toda ruído para fins de predição.
+
+Então o empate diz que a árvore recupera o sinal dos dois jeitos. Não diz que
+a cauda é descartável.
+
+### A razão que decide: este projeto é um detector de drift
+
+O `reference` tem dois papéis, e eles não têm as mesmas necessidades. Para o
+modelo, tanto faz. Para o monitor, não:
+
+Com teto em 1,0, a distribuição de referência **não tem nada acima de 1**. Um
+lote futuro em que o grupo acima do limite passe de 1,5 para 8,0 de utilização
+média — que é a aparência de um aperto de crédito nesta coluna — chega ao
+monitor achatado em 1,0, idêntico à referência. Nenhum teste de KS, nenhuma
+distância de Wasserstein, nenhum PSI consegue ver uma diferença que o
+pré-processamento apagou antes da comparação. Estaríamos construindo um
+detector de drift e deletando a região onde o drift aparece.
+
+O custo dessa capacidade é, pelas cinco sementes, **zero de AUC**.
+
+### Recomendação e decisão
+
+**Teto de 10,0, adotado como padrão antes de congelar o dataset de
+referência.** As métricas de modelo são um empate dentro do ruído; o argumento
+de observabilidade é assimétrico — 0,0018 de AUC se recupera com ajuste de
+hiperparâmetro, uma referência sem cauda é um monitor permanentemente cego
+naquela faixa. As 241 linhas acima de 10, que inadimplem na taxa-base, seguem
+winsorizadas.
+
+Manter valores acima de 1 deixa `revolving_utilization_at_most_one` falhando, e
+essa regra é **alerta** na classificação do próprio contrato. Então
+`assert_model_ready` passou a ser consciente de severidade: bloqueante levanta,
+alerta é registrado — igual ao que o portão de ingestão já fazia com um lote
+entregue. Antes, um alerta parava o pipeline, o que era o passo de
+pré-processamento sobrepondo-se à política do contrato.
+
+### O que aprendi disso
+
+Uma justificativa que cita um número precisa citar também como aquele número
+foi calculado. "A correlação é -0,00" e "a correlação de Pearson desta coluna é
+-0,00 e é dominada por 0,16% das linhas" levam a decisões opostas, e a primeira
+frase é a que se escreve quando se está com pressa. O achado 4 já estava no
+repositório; o que faltou foi aplicá-lo à coluna seguinte.
