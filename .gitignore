@@ -50,6 +50,13 @@
 !/reports/evidently/stress_only_scoring_month_06.html
 !/reports/evidently/stress_only_label_month_06.html
 
+# Exceção: o resumo dos testes estatísticos e o gráfico de falso alarme. O PNG
+# vai no vídeo; o cache bruto do A/A fica em data/ e é regenerável.
+!/reports/drift_tests/
+/reports/drift_tests/*
+!/reports/drift_tests/summary.md
+!/reports/drift_tests/false_alarm_rate.png
+
 # Material de referência do curso: PDFs das aulas e o enunciado.
 # Nunca versionar — é conteúdo de terceiros.
 docs/_reference/
