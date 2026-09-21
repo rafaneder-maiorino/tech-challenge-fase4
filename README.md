@@ -54,6 +54,21 @@ rotina um diff de seis arquivos de 4 MB com os mesmos números dentro — e um
 efeito colateral de olhar um relatório. Depois de publicar, confira o diff antes
 de commitar.
 
+## Notas de contribuição
+
+**Todo dia termina atualizando [`docs/video-notes.md`](docs/video-notes.md)** com
+qualquer novo candidato a achado-herói ou a tomada de demonstração.
+
+O motivo é de curadoria, não de burocracia: `docs/findings.md` guarda tudo e já
+passa de dez achados, mas o vídeo comporta cerca de quatro. Decidir o que entra
+no fim, com tudo pronto, é decidir por cansaço. Decidir no dia em que o achado
+aparece — enquanto o número ainda está fresco e o artefato ainda está na tela —
+é decidir com informação.
+
+Vale também para o que **não** entra: a seção "Descartados" registra por que cada
+achado ficou de fora, e essa lista é o que impede a discussão de recomeçar do
+zero a cada semana.
+
 Pré-requisitos: [uv](https://docs.astral.sh/uv/) e Python 3.11 (fixado em
 `.python-version`).
 
