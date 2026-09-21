@@ -750,3 +750,113 @@ metades não são as mesmas:
 | **calibração quebra** | `all` — os dois sinais disparam | `stress_only` — **só o rótulo vê** |
 
 O canto inferior direito é o que justifica a etapa 3 inteira.
+
+---
+
+## 10. O PSI do Evidently não tem o nosso bug — tem outro, e ele troca um veredito
+
+**Etapa 2 · 2026-09-22 · `src/credit_monitor/reporting/drift.py`**
+
+O dia 6 descobriu que binning por quantil colapsa em **um bin só** em colunas
+94-95% zeradas, tornando o PSI incapaz de reportar drift (achado 7). Antes de
+confiar em qualquer número do Evidently, a mesma pergunta foi feita a ele.
+
+### A boa notícia: nas contagens, os dois concordam
+
+`get_binned_data` troca para **um bin por valor** quando a coluna tem 20 ou
+menos valores distintos. É exatamente a regra que o dia 6 adotou, e os dois
+estimadores concordam em três casas decimais:
+
+| feature | nosso PSI | PSI do Evidently |
+|---|---|---|
+| `NumberOfTime30-59DaysPastDueNotWorse` | 0,4418 | 0,4441 |
+| `NumberOfTimes90DaysLate` | 0,3018 | 0,3019 |
+| `NumberOfTime60-89DaysPastDueNotWorse` | 0,2775 | 0,2796 |
+| `NumberOfDependents` | 0,0201 | 0,0205 |
+| `income_missing` | 0,0134 | 0,0134 |
+
+**O Evidently não tem o bug do achado 7.** Vale registrar isso com o mesmo
+destaque de um defeito: a expectativa ao abrir a investigação era encontrar a
+mesma falha, e ela não estava lá.
+
+### A má notícia: nas contínuas, um veredito muda
+
+| feature | nosso PSI | Evidently | razão | veredito |
+|---|---|---|---|---|
+| `RevolvingUtilizationOfUnsecuredLines` | 0,9420 | 0,6486 | 1,45x | 🔴 / 🔴 |
+| **`DebtRatio`** | **0,0244 🟢** | **0,1083 🟡** | 0,23x | **discordam** |
+| `NumberRealEstateLoansOrLines` | 0,0441 | 0,0132 | 3,34x | 🟢 / 🟢 |
+| `MonthlyIncome` | 0,0218 | 0,0159 | 1,37x | 🟢 / 🟢 |
+
+O `DebtRatio` é a coluna que o mecanismo de inflação divide por (1+πs). Os dois
+estimadores olham para a mesma mudança real de 9% em 80% das linhas e um diz
+"estável", o outro "moderado".
+
+### A causa
+
+Para coluna numérica com mais de 20 valores distintos, o Evidently usa
+`np.histogram_bin_edges(combined, bins="sturges")` — bins de **largura igual**
+sobre a união de referência e lote.
+
+O problema não é a largura igual em si, é que o resultado **depende do número
+de bins**, que é uma escolha arbitrária de configuração:
+
+| coluna | bins | quantil no reference | largura igual |
+|---|---|---|---|
+| `DebtRatio` | 10 | 0,0244 | 0,0090 |
+| `DebtRatio` | 18 | 0,0272 | **0,1676** |
+| `DebtRatio` | 30 | 0,0303 | 0,1796 |
+| `RevolvingUtilization` | 10 | 0,9420 | 0,1484 |
+| `RevolvingUtilization` | 18 | 0,9482 | 0,6432 |
+| `RevolvingUtilization` | 30 | 0,9547 | 0,7801 |
+
+Com bins de quantil, dobrar ou triplicar a contagem move o PSI em **menos de
+25%**. Com largura igual, o `DebtRatio` varia **20 vezes** entre 10 e 18 bins —
+de estável a quase alerta. Um número que oscila assim com um parâmetro que
+ninguém pensou em escolher não é uma medida, é uma coincidência.
+
+### `nbinsx` não corrige
+
+`ValueDrift` aceita `nbinsx`, o que parece ser exatamente a alavanca. Não é: o
+caminho numérico de `get_binned_data` **ignora** o parâmetro e chama
+`bins="sturges"` direto. Medido — 5, 10, 30, 100 e 300 bins devolvem valores
+idênticos até a sexta casa:
+
+```
+MonthlyIncome  nbinsx 5/10/30/100/300 -> [0.015902, 0.015902, 0.015902, 0.015902, 0.015902]
+DebtRatio      nbinsx 5/10/30/100/300 -> [0.10832,  0.10832,  0.10832,  0.10832,  0.10832]
+```
+
+### A correção
+
+Registrar um *stattest* próprio e referenciá-lo por nome. `method=` aceita
+**só string** na API atual — passar um callable é recusado com erro de
+validação —, então registrar é o único caminho:
+
+```python
+StatTest(name="reference_psi", ...)
+register_stattest(reference_psi_test, _impl)
+ValueDrift(column=..., method="reference_psi")
+```
+
+A implementação **delega** para `credit_monitor.simulation.psi`, o mesmo código
+do dia 6. Isso importa: o número no HTML do Evidently e o número da nossa
+tabela passam a ser o mesmo número por construção, não duas estimativas que por
+acaso se parecem. Verificado — batem até a sexta casa decimal.
+
+### Uma ressalva honesta
+
+O argumento contra largura-igual **não** é que os bins mudam de mês para mês.
+Essa era a hipótese, e ela foi testada e **refutada**: as arestas ficaram
+idênticas nos sete meses, porque o pré-processamento limita `DebtRatio` a 2 e a
+utilização a 10, e a máxima da união é dominada pela referência. A instabilidade
+é em relação ao **número de bins**, não ao lote — e isso basta.
+
+### O que aprendi disso
+
+Dois estimadores da mesma estatística, sobre os mesmos dados, discordando o
+suficiente para trocar um veredito é o tipo de coisa que só aparece quando
+alguém põe os dois lado a lado. O cross-check custou uma tabela; sem ele, o
+projeto teria dois painéis — o nosso `summary.md` e o HTML do Evidently —
+dizendo coisas diferentes sobre `DebtRatio`, e a descoberta viria de alguém
+apontando a discrepância numa apresentação.
