@@ -14,6 +14,21 @@ from credit_monitor.simulation.config import SimulationConfig
 from credit_monitor.simulation.psi import ALERT_THRESHOLD, WARN_THRESHOLD
 from credit_monitor.simulation.simulate import MultivariateResult, SimulationResult
 
+# Rank-robust evidence for how little the champion leans on income, measured
+# once and quoted here because the numbers come from a separate analysis
+# (permutation importance and XGBoost gain over the reference set) rather than
+# from the simulation run.
+INCOME_EVIDENCE_TABLE: str = "\n".join(
+    [
+        "| evidência | `MonthlyIncome` | topo da lista | posição |",
+        "|---|---|---|---|",
+        "| importância por permutação (queda de AUC) | **+0,0029** "
+        "| utilização, +0,0757 | 7 de 11 |",
+        "| ganho do XGBoost | **2,15%** | 90d+, 28,47% | 9 de 11 |",
+        "| AUC univariada (discriminação) | 0,5746 | utilização, 0,7770 | 6 de 11 |",
+    ]
+)
+
 
 def _band(value: float) -> str:
     """Traffic light for a PSI value, matching the conventional reading."""
@@ -148,6 +163,28 @@ def render(
     extra: dict[str, Any],
 ) -> str:
     """Assemble the whole report."""
+    composition, stress = arms[1], arms[3]
+    composition_psi_frame = composition.psi_frame()
+    stress_psi_frame = stress.psi_frame()
+    last = composition_psi_frame.index[-1]
+    composition_psi = float(composition_psi_frame.loc[last].max())
+    stress_psi = float(stress_psi_frame.loc[last].max())
+    composition_red = int((composition_psi_frame.loc[last] > ALERT_THRESHOLD).sum())
+    stress_red = int((stress_psi_frame.loc[last] > ALERT_THRESHOLD).sum())
+    composition_gap = composition.months[-1].metrics.calibration_gap
+    stress_gap = stress.months[-1].metrics.calibration_gap
+    composition_auc = composition.months[-1].metrics.auc_roc
+    stress_auc = stress.months[-1].metrics.auc_roc
+    two_by_two = "\n".join(
+        [
+            "| braço | PSI máx (mês 6) | features 🔴 | gap de calibração | AUC |",
+            "|---|---|---|---|---|",
+            f"| `composition_only` | **{composition_psi:.4f}** | {composition_red} "
+            f"| **{composition_gap:+.4f}** | {composition_auc:.4f} |",
+            f"| `stress_only` | **{stress_psi:.4f}** | {stress_red} "
+            f"| **{stress_gap:+.4f}** | {stress_auc:.4f} |",
+        ]
+    )
     inflation_shift = abs(
         arms[2].months[-1].metrics.mean_predicted
         - arms[2].months[0].metrics.mean_predicted
@@ -209,7 +246,7 @@ prevendo {main.months[-1].metrics.mean_predicted:.1%} onde o observado é
 Os meses 0 a 6 gerados quatro vezes com a **mesma semente**, variando só quais
 mecanismos estão ligados. Como controlamos o processo gerador, ligar e desligar
 um mecanismo é intervir, não observar uma associação (ver
-`docs/simulation.md` §5).
+`docs/simulation.md` §6).
 
 ### AUC-ROC
 
@@ -250,20 +287,64 @@ A tabela separa os três tipos de drift de forma limpa:
   {inflation_shift:.4f}
   de probabilidade, e o AUC não se move.
 
-A razão está na inspeção §10: a correlação de `MonthlyIncome` com o alvo é
-**-0,02**. Inflacionar 10% uma das features mais fracas do modelo não podia
-produzir muito, e o desenho do cenário supôs que produziria. É exatamente o
-tipo de afirmação que uma ablação existe para testar, e o resultado é que **o
-gap de calibração desta simulação vem do mecanismo 3, não do 2**.
+A razão é **o quanto o campeão usa renda**, medido em estatísticas que a cauda
+não contamina (`MonthlyIncome` tem desvio 14.483 e máximo 3.008.750, então
+Pearson não serve aqui — ver `docs/findings.md` §8):
+
+{INCOME_EVIDENCE_TABLE}
+
+A renda tem sinal univariado real — discriminação 0,5746, meio da tabela — mas
+**o modelo quase não a usa**: 2,15% do ganho, e embaralhar a coluna inteira
+custa 0,0029 de AUC. As quatro primeiras features (os três contadores de atraso
+e a utilização) concentram **82,07%** do ganho. Mover 10% uma coluna que
+responde por 2% do modelo desloca a previsão média em 29 pontos-base, que é
+exatamente o que a ablação mediu.
 
 Vale registrar o que isso *não* significa: a inflação nominal continua sendo um
 mecanismo real de drift por medição. O que a intervenção mostra é que, **neste
-modelo**, ela é pequena — porque este modelo quase não usa renda. Num modelo
-que usasse, a mesma intervenção teria outro resultado.
+modelo**, ela é pequena — porque este modelo quase não usa renda. Num scorecard
+que usasse renda de forma central, a mesma intervenção teria outro resultado.
 
 ---
 
-## 5. Cenário só-multivariado
+## 5. O 2x2 da etapa 2
+
+As duas linhas abaixo são a mesma tabela de ablação lida de outro jeito, e são
+o resultado mais importante da etapa:
+
+{two_by_two}
+
+**`composition_only`**: o painel de drift grita — PSI de {composition_psi:.2f} na
+utilização, {composition_red} features na faixa vermelha — e o modelo continua
+**calibrado**, com gap de {composition_gap:+.4f}. Alarme máximo, dano de
+calibração nenhum.
+
+**`stress_only`**: **nenhuma feature driftou** — PSI máximo de
+{stress_psi:.4f}, mais de dez vezes abaixo do limiar de alerta de 0,10, porque
+os rótulos mudaram e as features não. E o gap chega a {stress_gap:+.4f}, doze
+vezes o do braço anterior. Silêncio total no painel, dano máximo.
+
+> **Drift não é degradação, e degradação não exige drift.**
+
+### A consequência de engenharia
+
+Monitorar drift de features **não pode**, sozinho, pegar o mecanismo que causa
+a maior parte do dano de calibração. O braço `stress_only` é invisível a PSI, a
+KS por feature, a qualquer distância entre distribuições de entrada — porque
+`P(X)` genuinamente não mudou. O que mudou foi `P(y|X)`, e nenhuma quantidade
+de vigilância sobre `X` alcança isso.
+
+O corolário é que **monitoramento baseado em rótulo é obrigatório**, não um
+complemento: rótulos com atraso, gap de calibração, Brier por lote. É a única
+família de sinal que enxerga drift de conceito. E é também a mais cara e a mais
+lenta — o rótulo chega meses depois — o que faz do drift de features um sinal
+*antecedente* útil e insuficiente, nunca um substituto.
+
+Os dois juntos cobrem o quadrado inteiro; cada um sozinho cobre metade.
+
+---
+
+## 6. Cenário só-multivariado
 
 Lote separado, partindo de uma amostra uniforme estilo mês 0. A dependência de
 um par de colunas é invertida por **permutação**, então toda distribuição

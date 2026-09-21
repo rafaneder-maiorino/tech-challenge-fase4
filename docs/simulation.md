@@ -195,7 +195,34 @@ carteira, e o aperto de crédito é exatamente o que descasa uma da outra.
 
 ---
 
-## 5. A ablação é uma intervenção, não uma correlação
+## 5. O resultado que a ablação existe para produzir
+
+Antes da mecânica: este é o resultado que o desenho todo serve para tornar
+mensurável, e ele é contraintuitivo o bastante para valer o cenário inteiro.
+
+| braço | PSI máx (mês 6) | features 🔴 | gap de calibração | AUC |
+|---|---|---|---|---|
+| `composition_only` | **0,9327** | 5 de 11 | **-0,0028** | 0,8130 |
+| `stress_only` | **0,0082** | **0 de 11** | **-0,0337** | 0,7917 |
+
+A composição da carteira muda e o painel de drift grita, enquanto o modelo
+segue **calibrado** — os rótulos são reais, clientes mais arriscados de fato
+inadimplem mais, e as probabilidades continuam certas para eles. O estresse
+macroeconômico não move **nenhuma** feature — PSI máximo na ordem do ruído de
+amostragem — e destrói a calibração.
+
+> **Drift não é degradação, e degradação não exige drift.**
+
+A consequência prática: monitorar drift de features não pode, sozinho, pegar o
+mecanismo que causa a maior parte do dano. `stress_only` muda `P(y|X)` sem tocar
+em `P(X)`, e nenhuma distância entre distribuições de entrada alcança isso.
+**Monitoramento baseado em rótulo — rótulos com atraso, gap de calibração,
+Brier por lote — é obrigatório, não complementar.** É também o mais lento, o que
+é precisamente o motivo de os lotes saírem em três arquivos separados (§7).
+
+---
+
+## 6. A ablação é uma intervenção, não uma correlação
 
 Os meses 0 a 6 são gerados quatro vezes, com a mesma semente: todos os
 mecanismos ligados, só composição, só inflação, só estresse.
@@ -215,7 +242,7 @@ com X".
 
 ---
 
-## 6. Atraso de rótulo
+## 7. Atraso de rótulo
 
 Cada lote é escrito em **três arquivos separados**, e a separação é o ponto:
 

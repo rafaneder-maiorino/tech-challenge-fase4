@@ -95,7 +95,7 @@ prevendo 20.5% onde o observado é
 Os meses 0 a 6 gerados quatro vezes com a **mesma semente**, variando só quais
 mecanismos estão ligados. Como controlamos o processo gerador, ligar e desligar
 um mecanismo é intervir, não observar uma associação (ver
-`docs/simulation.md` §5).
+`docs/simulation.md` §6).
 
 ### AUC-ROC
 
@@ -156,20 +156,71 @@ A tabela separa os três tipos de drift de forma limpa:
   0.0029
   de probabilidade, e o AUC não se move.
 
-A razão está na inspeção §10: a correlação de `MonthlyIncome` com o alvo é
-**-0,02**. Inflacionar 10% uma das features mais fracas do modelo não podia
-produzir muito, e o desenho do cenário supôs que produziria. É exatamente o
-tipo de afirmação que uma ablação existe para testar, e o resultado é que **o
-gap de calibração desta simulação vem do mecanismo 3, não do 2**.
+A razão é **o quanto o campeão usa renda**, medido em estatísticas que a cauda
+não contamina (`MonthlyIncome` tem desvio 14.483 e máximo 3.008.750, então
+Pearson não serve aqui — ver `docs/findings.md` §8):
+
+| evidência | `MonthlyIncome` | topo da lista | posição |
+|---|---|---|---|
+| importância por permutação (queda de AUC) | **+0,0029** | utilização, +0,0757 | 7 de 11 |
+| ganho do XGBoost | **2,15%** | 90d+, 28,47% | 9 de 11 |
+| AUC univariada (discriminação) | 0,5746 | utilização, 0,7770 | 6 de 11 |
+
+A renda tem sinal univariado real — discriminação 0,5746, meio da tabela — mas
+**o modelo quase não a usa**: 2,15% do ganho, e embaralhar a coluna inteira
+custa 0,0029 de AUC. As quatro primeiras features (os três contadores de atraso
+e a utilização) concentram **82,07%** do ganho. Mover 10% uma coluna que
+responde por 2% do modelo desloca a previsão média em 29 pontos-base, que é
+exatamente o que a ablação mediu.
 
 Vale registrar o que isso *não* significa: a inflação nominal continua sendo um
 mecanismo real de drift por medição. O que a intervenção mostra é que, **neste
-modelo**, ela é pequena — porque este modelo quase não usa renda. Num modelo
-que usasse, a mesma intervenção teria outro resultado.
+modelo**, ela é pequena — porque este modelo quase não usa renda. Num scorecard
+que usasse renda de forma central, a mesma intervenção teria outro resultado.
 
 ---
 
-## 5. Cenário só-multivariado
+## 5. O 2x2 da etapa 2
+
+As duas linhas abaixo são a mesma tabela de ablação lida de outro jeito, e são
+o resultado mais importante da etapa:
+
+| braço | PSI máx (mês 6) | features 🔴 | gap de calibração | AUC |
+|---|---|---|---|---|
+| `composition_only` | **0.9327** | 5 | **-0.0028** | 0.8130 |
+| `stress_only` | **0.0082** | 0 | **-0.0337** | 0.7917 |
+
+**`composition_only`**: o painel de drift grita — PSI de 0.93 na
+utilização, 5 features na faixa vermelha — e o modelo continua
+**calibrado**, com gap de -0.0028. Alarme máximo, dano de
+calibração nenhum.
+
+**`stress_only`**: **nenhuma feature driftou** — PSI máximo de
+0.0082, mais de dez vezes abaixo do limiar de alerta de 0,10, porque
+os rótulos mudaram e as features não. E o gap chega a -0.0337, doze
+vezes o do braço anterior. Silêncio total no painel, dano máximo.
+
+> **Drift não é degradação, e degradação não exige drift.**
+
+### A consequência de engenharia
+
+Monitorar drift de features **não pode**, sozinho, pegar o mecanismo que causa
+a maior parte do dano de calibração. O braço `stress_only` é invisível a PSI, a
+KS por feature, a qualquer distância entre distribuições de entrada — porque
+`P(X)` genuinamente não mudou. O que mudou foi `P(y|X)`, e nenhuma quantidade
+de vigilância sobre `X` alcança isso.
+
+O corolário é que **monitoramento baseado em rótulo é obrigatório**, não um
+complemento: rótulos com atraso, gap de calibração, Brier por lote. É a única
+família de sinal que enxerga drift de conceito. E é também a mais cara e a mais
+lenta — o rótulo chega meses depois — o que faz do drift de features um sinal
+*antecedente* útil e insuficiente, nunca um substituto.
+
+Os dois juntos cobrem o quadrado inteiro; cada um sozinho cobre metade.
+
+---
+
+## 6. Cenário só-multivariado
 
 Lote separado, partindo de uma amostra uniforme estilo mês 0. A dependência de
 um par de colunas é invertida por **permutação**, então toda distribuição

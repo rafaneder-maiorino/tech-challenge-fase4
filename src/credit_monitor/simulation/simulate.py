@@ -243,7 +243,7 @@ def run_ablation(
 
     This is the cheap-now-expensive-later artefact. Because we own the
     data-generating process, switching a mechanism off is an **intervention**,
-    not a comparison of observed subgroups — see ``docs/simulation.md`` §5. In
+    not a comparison of observed subgroups — see ``docs/simulation.md`` §6. In
     production the table cannot be built at all: only the total is observable,
     and attribution is argument rather than measurement.
     """

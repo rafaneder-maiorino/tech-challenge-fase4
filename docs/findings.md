@@ -593,12 +593,41 @@ A direção prevista pelo DAG está certa: o previsto médio cai de 0,0681 para
 0,0652, isto é, o modelo **realmente** passa a ler risco menor sob inflação. A
 magnitude é que não existe — 29 pontos-base de probabilidade.
 
-### Por que
+### Por que — e uma correção do próprio achado
 
-Inspeção §10: a correlação de `MonthlyIncome` com o alvo é **-0,02**. Inflar em
-10% uma das features mais fracas do modelo não podia produzir muito, e o
-desenho do cenário supôs que produziria sem checar o número que estava no
-relatório desde o primeiro dia.
+A primeira versão desta seção explicava o resultado assim: "inspeção §10 dá a
+correlação de `MonthlyIncome` com o alvo como **-0,02**, então inflar em 10% uma
+das features mais fracas do modelo não podia produzir muito".
+
+**Essa evidência não vale, e pela terceira vez pelo mesmo motivo.**
+`MonthlyIncome` tem desvio **14.483** e máximo **3.008.750** — precisamente o
+regime que o achado 4 documentou nos contadores de atraso e o achado 6 na
+utilização. Um Pearson calculado aí não mede a relação, mede a cauda. A
+conclusão da ablação continua de pé porque ela vem da **intervenção**, não do
+coeficiente; o que estava errado era a explicação, que citava uma estatística
+contaminada para justificar um resultado obtido por outro caminho.
+
+Medido com estatísticas que a cauda não contamina:
+
+| evidência | `MonthlyIncome` | topo da lista | posição |
+|---|---|---|---|
+| Pearson com o alvo | -0,0155 | — | *contaminado, não usar* |
+| Spearman com o alvo | **-0,0648** | — | 4x o Pearson |
+| AUC univariada (discriminação) | **0,5746** | utilização, 0,7770 | 6 de 11 |
+| importância por permutação (queda de AUC) | **+0,0029** | utilização, +0,0757 | 7 de 11 |
+| ganho do XGBoost | **2,15%** | 90d+, 28,47% | 9 de 11 |
+
+O quadro muda, e a explicação com ele. A renda **não** é uma das features mais
+fracas: univariadamente ela discrimina 0,5746, meio da tabela, acima de
+`DebtRatio`, `NumberOfDependents` e das duas contagens de carteira. O Spearman é
+quatro vezes maior que o Pearson, exatamente como nos achados 4 e 6.
+
+A explicação correta não é sobre a força da variável, é sobre **o quanto este
+modelo a usa**: `MonthlyIncome` responde por **2,15%** do ganho do XGBoost, e
+embaralhar a coluna inteira custa **0,0029** de AUC. As quatro primeiras
+features — os três contadores de atraso e a utilização — concentram **82,07%**
+do ganho. Mover 10% uma coluna que responde por 2% do modelo desloca a previsão
+média em 29 pontos-base, que é exatamente o que a ablação mediu.
 
 Isso **não** significa que inflação nominal não seja um mecanismo real de drift
 por medição. Significa que, neste modelo, ela é pequena — porque este modelo
@@ -606,6 +635,23 @@ quase não usa renda. Num scorecard que usasse renda de forma central, a mesma
 intervenção daria outro resultado. A afirmação testável não é "inflação causa
 degradação silenciosa", é "inflação causa degradação silenciosa **em modelos que
 dependem das features que a inflação move**".
+
+### Terceira aplicação da mesma lição
+
+O achado 6 termina com: *"uma justificativa que cita um número precisa citar
+também como aquele número foi calculado"*. Esta é a **terceira** vez que a
+lição se aplica, e a segunda vez que eu mesmo a violei depois de escrevê-la:
+
+| # | coluna | Pearson | estatística robusta | consequência |
+|---|---|---|---|---|
+| 4 | contadores de atraso | 0,98 entre si | 0,27 sem as sentinelas | descartaria duas colunas |
+| 6 | utilização | -0,0018 | +0,2816 sem a cauda | teto errado, monitor cego |
+| 8 | renda | -0,0155 | ganho 2,15%, perm. 0,0029 | explicação errada |
+
+O padrão é estável o bastante para virar regra: **neste dataset, um Pearson
+perto de zero não é evidência de ausência de relação — é evidência de que a
+coluna tem cauda.** Antes de citar um coeficiente aqui, o cheque é o desvio
+contra a média. Três colunas de onze já falharam esse cheque.
 
 ### Um resultado nulo que virou um resultado melhor
 
@@ -639,3 +685,68 @@ O corolário desconfortável é que a história causal **estava escrita antes** 
 como o plano exigia, e com razão — e uma história escrita antes é uma hipótese,
 não um resultado. O valor de escrevê-la primeiro é justamente ter algo que a
 intervenção pode contradizer.
+
+---
+
+## 9. O 2x2 da etapa 2: drift não é degradação
+
+**Etapa 2 · 2026-09-21 · `reports/simulation/summary.md`**
+
+O resultado mais importante da etapa inteira, e ele cabe em duas linhas da
+tabela de ablação lidas lado a lado:
+
+| braço | PSI máx (mês 6) | features 🔴 | gap de calibração | AUC |
+|---|---|---|---|---|
+| `composition_only` | **0,9327** | 5 de 11 | **-0,0028** | 0,8130 |
+| `stress_only` | **0,0082** | **0 de 11** | **-0,0337** | 0,7917 |
+
+**`composition_only` — alarme máximo, calibração intacta.** A composição da
+carteira muda: entram clientes mais alavancados, mais jovens, com mais atrasos.
+O painel de drift grita — PSI de 0,93 na utilização, cinco features na faixa
+vermelha, a inadimplência observada vai de 7,08% a 21,00%. E o modelo continua
+**calibrado**: gap de -0,0028, praticamente o mesmo do lote de controle. Faz
+sentido, e é o ponto: os rótulos são reais, então clientes mais arriscados de
+fato inadimplem mais, e as probabilidades do modelo continuam certas *para
+eles*. O modelo não está errado — a população é que é outra.
+
+**`stress_only` — silêncio total, dano máximo.** Nenhuma feature driftou: PSI
+máximo de **0,0082**, mais de dez vezes abaixo do limiar de alerta e na mesma
+ordem do ruído de amostragem do mês 0 (0,0041). Nenhuma feature em faixa
+amarela, quanto menos vermelha. E o gap de calibração chega a **-0,0337**, doze
+vezes o do braço anterior. O painel inteiro fica verde enquanto o modelo perde
+a noção do nível de risco.
+
+A razão é que este braço muda `P(y|X)` e não toca em `P(X)`: os rótulos viram,
+as features não. Não há nada em `X` para um teste de distribuição encontrar,
+porque nada em `X` mudou.
+
+> ## Drift não é degradação, e degradação não exige drift.
+
+### A consequência de engenharia
+
+Monitorar drift de features **não pode**, sozinho, pegar o mecanismo que causa a
+maior parte do dano de calibração. O braço `stress_only` é invisível a PSI, a KS
+por feature, a Wasserstein, a PSI multivariado, a qualquer distância entre
+distribuições de entrada — não porque os testes sejam fracos, mas porque a
+quantidade que eles medem genuinamente não mudou. Nenhuma vigilância sobre `X`
+alcança uma mudança em `P(y|X)`.
+
+O corolário é que **monitoramento baseado em rótulo é obrigatório, não
+complementar**: rótulos com atraso, gap de calibração, Brier por lote. É a única
+família de sinal que enxerga drift de conceito.
+
+E é também a mais cara e a mais lenta, porque o rótulo chega meses depois — o
+que é exatamente o motivo de os lotes serem escritos em três arquivos
+separados. Isso faz do drift de features um sinal **antecedente** útil e
+insuficiente: ele chega primeiro e às vezes chega sozinho, e um painel que só
+tenha ele estará verde no pior cenário dos dois.
+
+Os dois juntos cobrem o quadrado inteiro. Cada um sozinho cobre metade, e as
+metades não são as mesmas:
+
+|  | features driftam | features não driftam |
+|---|---|---|
+| **calibração se mantém** | `composition_only` — monitor de drift acerta o alarme, nada a fazer no modelo | lote de controle (mês 0) |
+| **calibração quebra** | `all` — os dois sinais disparam | `stress_only` — **só o rótulo vê** |
+
+O canto inferior direito é o que justifica a etapa 3 inteira.
