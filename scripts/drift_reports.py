@@ -29,24 +29,24 @@ from credit_monitor.data.preprocess import MODEL_FEATURES
 from credit_monitor.logging_config import configure_logging
 from credit_monitor.models.score import load_champion, predict_proba
 from credit_monitor.reporting import drift, drift_summary
-from credit_monitor.reporting.drift_summary import ReportLink
+from credit_monitor.reporting.drift_summary import CURATED_REPORTS, ReportLink
 from credit_monitor.simulation.config import SimulationConfig
 from credit_monitor.simulation.simulate import run_simulation
 
 log = logging.getLogger(__name__)
 
 EVIDENTLY_DIR = REPORTS_DIR / "evidently"
-STRESS_DIR = PRODUCTION_DATA_DIR / "ablation_stress_only"
 
-# The curated set the rubric asks to commit. Everything else regenerates.
-COMMITTED = (
-    "scoring_month_00.html",
-    "scoring_month_03.html",
-    "scoring_month_06.html",
-    "label_month_06.html",
-    "stress_only_scoring_month_06.html",
-    "stress_only_label_month_06.html",
-)
+# Generation writes HERE, never into the tracked directory. Evidently names the
+# report's JavaScript variable with a fresh random UUID on every run, so two
+# generations of identical data differ in ~2,300 byte positions across a 4 MB
+# file. Writing straight into the tracked path would mean every routine
+# regeneration dirties the tree with six 4 MB files that contain the same
+# numbers, and one careless `git commit -a` puts that in history forever.
+# `make publish-reports` is the only command that touches tracked HTML.
+BUILD_DIR = EVIDENTLY_DIR / "_build"
+
+STRESS_DIR = PRODUCTION_DATA_DIR / "ablation_stress_only"
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -56,7 +56,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--data-dir", type=Path, default=PROCESSED_DATA_DIR)
     parser.add_argument("--batches-dir", type=Path, default=PRODUCTION_DATA_DIR)
-    parser.add_argument("--out-dir", type=Path, default=EVIDENTLY_DIR)
+    parser.add_argument("--out-dir", type=Path, default=BUILD_DIR)
     return parser
 
 
@@ -144,7 +144,7 @@ def main() -> None:
         months=list(range(config.n_months + 1)),
         reference_rows=len(reference),
         generated=dt.date.today().isoformat(),
-        committed=COMMITTED,
+        committed=CURATED_REPORTS,
         out_dir=args.out_dir,
     )
     (args.out_dir / "summary.md").write_text(content, encoding="utf-8")
@@ -156,7 +156,7 @@ def main() -> None:
             description=drift_summary.DESCRIPTIONS[name],
             size_mb=(args.out_dir / name).stat().st_size / 1_048_576,
         )
-        for name in COMMITTED
+        for name in CURATED_REPORTS
     ]
     (args.out_dir / "index.html").write_text(
         drift_summary.index_html(links, dt.date.today().isoformat()), encoding="utf-8"
@@ -178,14 +178,17 @@ def main() -> None:
         f"KS - MES {config.n_months}", drift_summary.ks_table(rows, config.n_months)
     )
     print()
-    print("ARQUIVOS VERSIONADOS")
-    print("====================")
+    print("CONJUNTO CURADO (em _build, ainda nao publicado)")
+    print("================================================")
     total = 0.0
-    for name in (*COMMITTED, "index.html", "summary.md"):
+    for name in (*CURATED_REPORTS, "index.html", "summary.md"):
         size = (args.out_dir / name).stat().st_size / 1_048_576
         total += size
         print(f"  {name:42} {size:7.2f} MB")
     print(f"  {'TOTAL':42} {total:7.2f} MB")
+    print()
+    print(f"Gerado em {args.out_dir} (ignorado pelo git).")
+    print("Para versionar o conjunto curado: make publish-reports")
     print()
 
 

@@ -842,7 +842,24 @@ ValueDrift(column=..., method="reference_psi")
 A implementação **delega** para `credit_monitor.simulation.psi`, o mesmo código
 do dia 6. Isso importa: o número no HTML do Evidently e o número da nossa
 tabela passam a ser o mesmo número por construção, não duas estimativas que por
-acaso se parecem. Verificado — batem até a sexta casa decimal.
+acaso se parecem. Afirmado em teste com tolerância de **1e-12**
+(`test_the_custom_stattest_delegates_to_our_psi`).
+
+### Uma segunda propriedade, descoberta ao versionar os HTML
+
+O HTML do Evidently **não é determinístico byte a byte**. Duas gerações do mesmo
+dado, com o mesmo código, produzem arquivos de tamanho idêntico (4.222.602
+bytes) que diferem em **2.314 posições** — porque a variável JavaScript do
+relatório recebe um UUID aleatório a cada execução
+(`metric_cfb614652481481f8dc3520daa224f4f` contra
+`metric_bf95aaaa900b42ab984ae4bb63cd1981`). Não são timestamps: nenhuma data
+difere entre as duas.
+
+O conteúdo é o mesmo, o arquivo não. Consequência prática: gerar relatórios
+direto no diretório versionado faria de **toda** regeneração de rotina um diff
+de seis arquivos de 4 MB com números idênticos dentro. Por isso
+`make drift-reports` escreve em `reports/evidently/_build/` (ignorado) e
+`make publish-reports` é o único alvo que toca HTML versionado.
 
 ### Uma ressalva honesta
 

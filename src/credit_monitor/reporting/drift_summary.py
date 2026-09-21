@@ -155,6 +155,18 @@ code {{ background:#f2f3f5; padding:.1rem .35rem; border-radius:3px; }}
 """
 
 
+# The curated set committed to the repository. Defined here, beside the titles
+# and descriptions keyed by the same names, so the generator and the publisher
+# cannot disagree about which files are tracked.
+CURATED_REPORTS: Final[tuple[str, ...]] = (
+    "scoring_month_00.html",
+    "scoring_month_03.html",
+    "scoring_month_06.html",
+    "label_month_06.html",
+    "stress_only_scoring_month_06.html",
+    "stress_only_label_month_06.html",
+)
+
 TITLES: Final[dict[str, str]] = {
     "scoring_month_00.html": "Mês 0 — scoring-time (controle)",
     "scoring_month_03.html": "Mês 3 — scoring-time",

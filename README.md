@@ -38,6 +38,22 @@ make mlflow-ui              # UI do MLflow na porta 5001
 > responde à requisição em vez de recusá-la, então o MLflow parece subir e
 > serve um 403 alheio.
 
+## Relatórios versionados: gerar não é publicar
+
+`make drift-reports` escreve em `reports/evidently/_build/`, que é **ignorado**.
+`make publish-reports` é o **único** comando que toca nos HTML versionados.
+
+A separação não é preciosismo. O HTML do Evidently não é determinístico byte a
+byte: a variável JavaScript do relatório recebe um UUID aleatório a cada
+execução, e duas gerações do **mesmo** dado diferem em ~2.300 posições num
+arquivo de 4 MB. Gerar direto no caminho versionado faria de toda regeneração de
+rotina um diff de seis arquivos de 4 MB com os mesmos números dentro — e um
+`git commit -a` distraído põe isso no histórico para sempre.
+
+**Publique em pontos deliberados** — fim de etapa, entrega final. Nunca como
+efeito colateral de olhar um relatório. Depois de publicar, confira o diff antes
+de commitar.
+
 Pré-requisitos: [uv](https://docs.astral.sh/uv/) e Python 3.11 (fixado em
 `.python-version`).
 
