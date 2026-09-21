@@ -20,6 +20,11 @@ import pytest
 from conftest import make_frame
 from pandera.typing import Series, UInt8
 
+from credit_monitor.contracts.failures import (
+    UnknownRuleError,
+    assert_rules_are_classified,
+    resolve_rule,
+)
 from credit_monitor.contracts.severity import RULE_SEVERITY, Rule, Severity
 from credit_monitor.pipeline.dirty_batch import (
     AGE_DEFECT_ROWS,
@@ -31,14 +36,7 @@ from credit_monitor.pipeline.dirty_batch import (
     DefectManifest,
     inject_defects,
 )
-from credit_monitor.pipeline.ingest import (
-    EXIT_BLOCKED,
-    EXIT_OK,
-    UnknownRuleError,
-    assert_rules_are_classified,
-    main,
-    resolve_rule,
-)
+from credit_monitor.pipeline.ingest import EXIT_BLOCKED, EXIT_OK, main
 
 # 26 rows with 2 positives is 7.69%, and 2 of 30 once the four duplicates are
 # appended: 6.67%, inside the contract's [5%, 9%] band at both ends. Getting
