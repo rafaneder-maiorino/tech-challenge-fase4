@@ -332,3 +332,67 @@ def test_prepare_split_validates_and_returns_matched_x_and_y() -> None:
 
     assert split.rows == len(split.features) == len(split.target)
     assert 0.05 <= split.positive_rate <= 0.09
+
+
+# --------------------------------------------------------------------------
+# Severity-aware enforcement (docs/findings.md §6)
+# --------------------------------------------------------------------------
+
+
+def test_the_default_utilization_cap_is_ten() -> None:
+    # Pinned so that moving it back to 1.0 — which would blind the drift
+    # monitor above 1 — has to be a deliberate edit to this assertion.
+    assert PreprocessingParams().utilization_cap == 10.0
+
+
+def test_a_warning_level_violation_does_not_stop_the_pipeline() -> None:
+    # Utilisation above 1 is a warning in the contract's own classification,
+    # precisely because those rows may be genuine. The default cap of 10 keeps
+    # them, so this is the normal path, not an edge case.
+    frame = make_random_frame()
+    frame.loc[0:2, "RevolvingUtilizationOfUnsecuredLines"] = 8.0
+
+    imputed, _, _ = pipeline(frame)
+
+    assert (imputed["RevolvingUtilizationOfUnsecuredLines"] > 1).sum() == 3
+    assert_model_ready(imputed)  # warning only: must not raise
+
+
+def test_a_blocker_level_violation_still_stops_the_pipeline() -> None:
+    # The severity awareness must not have turned the assertion into a no-op.
+    frame = make_random_frame()
+    frame.loc[0, "age"] = 0
+    frame[INCOME_MISSING_COLUMN] = 0
+
+    with pytest.raises(pa.errors.SchemaErrors):
+        assert_model_ready(frame)
+
+
+def test_a_warning_and_a_blocker_together_still_raise() -> None:
+    # A warning must never mask a blocker sitting beside it.
+    frame = make_random_frame()
+    frame.loc[0, "RevolvingUtilizationOfUnsecuredLines"] = 8.0
+    frame.loc[1, "MonthlyIncome"] = -100.0
+    frame[INCOME_MISSING_COLUMN] = 0
+
+    with pytest.raises(pa.errors.SchemaErrors):
+        assert_model_ready(frame)
+
+
+def test_the_capped_tail_survives_into_the_reference_distribution() -> None:
+    # The drift argument, as an assertion: the reference distribution has to
+    # retain range above 1, or a future batch shifting inside that range is
+    # invisible to every distance the monitor can compute.
+    frame = make_random_frame()
+    frame.loc[0, "RevolvingUtilizationOfUnsecuredLines"] = 1.5
+    frame.loc[1, "RevolvingUtilizationOfUnsecuredLines"] = 8.0
+    frame.loc[2, "RevolvingUtilizationOfUnsecuredLines"] = 50708.0
+
+    imputed, _, _ = pipeline(frame)
+    tail = imputed.loc[
+        imputed["RevolvingUtilizationOfUnsecuredLines"] > 1,
+        "RevolvingUtilizationOfUnsecuredLines",
+    ]
+
+    assert sorted(tail) == [1.5, 8.0, 10.0]
+    assert tail.nunique() == 3, "the tail must not be collapsed onto one value"
