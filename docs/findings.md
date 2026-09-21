@@ -175,7 +175,7 @@ auditoria, um fator de 11 não é um detalhe de apresentação.
 
 ## 4. As sentinelas fabricavam a correlação de 0,99 entre os contadores
 
-**Etapa 1 · 2026-09-20 · `scripts/recheck_correlation.py`**
+**Etapa 1 · 2026-09-21 · `scripts/recheck_correlation.py`**
 
 ### A leitura suspeita
 
@@ -475,3 +475,167 @@ foi calculado. "A correlação é -0,00" e "a correlação de Pearson desta colu
 -0,00 e é dominada por 0,16% das linhas" levam a decisões opostas, e a primeira
 frase é a que se escreve quando se está com pressa. O achado 4 já estava no
 repositório; o que faltou foi aplicá-lo à coluna seguinte.
+
+---
+
+## 7. Dois bugs que pareciam resultados
+
+**Etapa 2 · 2026-09-21 · `src/credit_monitor/models/score.py`, `simulation/psi.py`**
+
+Os dois apareceram na primeira execução completa do simulador, os dois
+produziram números plausíveis, e é essa a parte que interessa: numa simulação
+de drift, **degradação é o resultado esperado**, então qualquer bug que degrade
+alguma coisa se disfarça de sucesso.
+
+### Bug A — `pyfunc.predict` devolve classe, não probabilidade
+
+O campeão foi carregado com `mlflow.pyfunc.load_model` e pontuado com
+`model.predict(X)`. Um wrapper pyfunc expõe só `predict`, que num
+classificador devolve a **classe prevista**. Então:
+
+| métrica | com o bug | correto |
+|---|---|---|
+| AUC no mês 0 | **0,5857** | **0,8601** |
+| previsto médio | 0,0208 | 0,0681 |
+| Brier | 0,0661 | 0,0519 |
+
+O "previsto médio" de 2,08% era a fração de linhas classificadas como
+positivas, e o Brier de 0,0661 é quase exatamente `p(1-p)` da taxa-base — a
+assinatura de um preditor constante, que o achado 5 já tinha registrado como
+referência. O AUC de 0,586 é o que se obtém ao calcular AUC sobre valores
+binários.
+
+Nada disso levantou um alerta automático. Um modelo com AUC de 0,59 num lote de
+drift é exatamente o que se espera ver. O que denunciou foi comparar o **mês 0**
+— que é controle, sem mecanismo nenhum aplicado — com o AUC de validação do dia
+4 (0,8561). Um lote de controle tem de reproduzir o número conhecido; quando não
+reproduz, o problema é do instrumento.
+
+A correção carrega a lição no tipo: `predict_proba` agora recebe um
+`ProbabilisticClassifier`, um `Protocol` que exige o método
+`predict_proba`. Um wrapper que só ofereça `predict` **não satisfaz o tipo**.
+
+### Bug B — o PSI era estruturalmente incapaz de detectar três features
+
+O PSI cortava 10 bins de quantil no `reference` e então fazia
+`edges[0] = -inf; edges[-1] = +inf`. Em colunas dominadas por empates isso
+destrói a única fronteira que importa:
+
+| coluna | share do valor modal | arestas de quantil distintas | bins efetivos |
+|---|---|---|---|
+| `NumberOfTimes90DaysLate` | 94,56% | 2 | **1** |
+| `NumberOfTime60-89DaysPastDueNotWorse` | 95,03% | 2 | **1** |
+| `income_missing` | 80,41% | 2 | **1** |
+
+Todos os decis do 10º ao 90º caem em zero, `np.unique` colapsa as onze arestas
+pedidas em duas, e sobrescrever as pontas com ±inf deixa **um bin só**. Com um
+bin, o PSI é identicamente zero: a estatística não pode reportar drift naquela
+coluna aconteça o que acontecer. Três das onze features estavam nesse estado, e
+duas delas são justamente as que o mecanismo de composição move com defasagem —
+o coração da cascata do DAG.
+
+A tabela mostrava `0.000` nas três, em todos os meses. Num relatório de
+estabilidade, uma coluna perfeitamente estável não parece bug: parece a
+coluna que não driftou.
+
+A correção é adaptativa e o gatilho é a própria degeneração: se os quantis
+pedidos não produzem `bins + 1` arestas distintas, a coluna é dominada por
+empates e passa a ter **um bin por valor observado**. Para uma coluna de
+contagem essa é a divisão honesta de qualquer forma — a pergunta é "quantas
+linhas saíram de zero", e nenhuma grade de quantil pergunta isso. As pontas
+±inf passaram a ser **anexadas**, nunca escritas sobre uma aresta interna.
+
+Depois da correção, as mesmas colunas: `NumberOfTimes90DaysLate` vai de 0,003
+no mês 0 a **0,302** no mês 6, e `NumberOfTime60-89Days` de 0,001 a **0,278** —
+e ambas começam a se mover **depois** da faixa de 30-59 dias, que é exatamente a
+cascata que o cenário implementa.
+
+### O que aprendi disso
+
+Num sistema cujo trabalho é detectar degradação, um instrumento quebrado e um
+sinal verdadeiro têm a mesma aparência. As duas defesas que funcionaram não
+foram testes unitários — eram bugs de integração — e sim:
+
+1. **Um lote de controle com resposta conhecida.** O mês 0 existe para medir
+   ruído de amostragem, e serviu para achar o bug A porque tinha um valor
+   esperado independente.
+2. **Desconfiar de um zero perfeito.** `0.000` repetido sete vezes em três
+   colunas não é estabilidade, é uma estatística que não está sendo calculada.
+
+---
+
+## 8. A ablação refutou a história causal que eu mesmo desenhei
+
+**Etapa 2 · 2026-09-21 · `reports/simulation/summary.md`**
+
+O cenário de `docs/simulation.md` atribui a **degradação silenciosa** ao
+mecanismo 2, a inflação nominal: a renda sobe, o `DebtRatio` cai, o modelo lê
+risco menor exatamente quando o cliente fica mais arriscado. A história é
+coerente, o DAG é defensável, e a ablação mostra que **ela não é o que
+acontece neste modelo**.
+
+### O que a intervenção mostrou
+
+Meses 0 a 6, mesma semente, variando só quais mecanismos estão ligados:
+
+| braço | AUC mês 0 → mês 6 | gap de calibração mês 6 | previsto médio mês 0 → mês 6 |
+|---|---|---|---|
+| `composition_only` (P(X)) | 0,8601 → 0,8130 | **-0,0028** | 0,0681 → 0,2072 |
+| `inflation_only` (medição) | 0,8601 → **0,8658** | **-0,0049** | 0,0681 → 0,0652 |
+| `stress_only` (P(y\|X)) | 0,8601 → 0,7917 | **-0,0337** | 0,0681 → 0,0667 |
+| `all` | 0,8601 → 0,7779 | -0,0396 | 0,0681 → 0,2050 |
+
+**O gap de calibração vem do mecanismo 3, não do 2.** O braço só-inflação
+produz um gap de -0,0049 contra -0,0337 do só-estresse, e seu AUC não cai —
+sobe 0,0057, dentro do ruído de ±0,007 medido no dia 4.
+
+A direção prevista pelo DAG está certa: o previsto médio cai de 0,0681 para
+0,0652, isto é, o modelo **realmente** passa a ler risco menor sob inflação. A
+magnitude é que não existe — 29 pontos-base de probabilidade.
+
+### Por que
+
+Inspeção §10: a correlação de `MonthlyIncome` com o alvo é **-0,02**. Inflar em
+10% uma das features mais fracas do modelo não podia produzir muito, e o
+desenho do cenário supôs que produziria sem checar o número que estava no
+relatório desde o primeiro dia.
+
+Isso **não** significa que inflação nominal não seja um mecanismo real de drift
+por medição. Significa que, neste modelo, ela é pequena — porque este modelo
+quase não usa renda. Num scorecard que usasse renda de forma central, a mesma
+intervenção daria outro resultado. A afirmação testável não é "inflação causa
+degradação silenciosa", é "inflação causa degradação silenciosa **em modelos que
+dependem das features que a inflação move**".
+
+### Um resultado nulo que virou um resultado melhor
+
+O mesmo aconteceu no cenário só-multivariado. O par escolhido pela regra
+especificada — maior dependência entre colunas que nenhum outro mecanismo toca,
+`NumberOfOpenCreditLinesAndLoans` / `NumberRealEstateLoansOrLines` — produziu
+**resultado nulo**: ΔAUC de +0,0024, dentro do ruído.
+
+Testar um segundo par mudou a conclusão. O canal de aperto de crédito do DAG
+(`utilização` / `idade`) é igualmente invisível ao univariado — PSI máximo de
+0,0041 em toda feature — e custa **-0,0168 de AUC**, fora da banda de ruído.
+
+| par | PSI máx | ΔAUC | leitura |
+|---|---|---|---|
+| `open_lines` / `real_estate` | 0,0041 | +0,0024 | indetectável **e** inofensivo |
+| `utilização` / `idade` | 0,0041 | **-0,0168** | indetectável e **danoso** |
+
+Com um par só, "univariado não vê" e "não importa" teriam sido confundidos. São
+duas afirmações diferentes, e o dia 8 precisa das duas: uma mede
+detectabilidade, a outra mede dano.
+
+### O que aprendi disso
+
+A ablação custou uma função de quatro linhas e um laço. Ela refutou uma
+hipótese do desenho, localizou a causa real do único sinal que importa para a
+etapa 3, e transformou um resultado nulo em dois resultados. Em produção
+nenhuma dessas três coisas seria possível: só o total é observável, e
+atribuição passa a ser argumento em vez de medição.
+
+O corolário desconfortável é que a história causal **estava escrita antes** —
+como o plano exigia, e com razão — e uma história escrita antes é uma hipótese,
+não um resultado. O valor de escrevê-la primeiro é justamente ter algo que a
+intervenção pode contradizer.
