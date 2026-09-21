@@ -22,6 +22,28 @@ REPORTS_DIR: Path = PROJECT_ROOT / "reports"
 # had to be committed would mean the pipeline lost the ability to reproduce it.
 DIRTY_DATA_DIR: Path = DATA_DIR / "dirty"
 CLEAN_DATA_DIR: Path = DATA_DIR / "clean"
+# Reference (treino + linha de base do drift) e holdout (controle do teste A/A).
+PROCESSED_DATA_DIR: Path = DATA_DIR / "processed"
+
+# --------------------------------------------------------------------------
+# MLflow
+#
+# SQLite, not the filesystem store: the model registry — and therefore the
+# `champion` alias the serving side resolves — is unavailable on the file
+# backend, which MLflow 3 also reports as being in maintenance mode.
+#
+# The UI is `mlflow ui --backend-store-uri sqlite:///mlflow.db --port 5001`.
+# Port 5001 because on macOS 5000 is bound by the AirPlay Receiver, which
+# answers requests instead of failing, so MLflow appears to start and then
+# serves someone else's 403.
+# --------------------------------------------------------------------------
+MLFLOW_DB_PATH: Path = PROJECT_ROOT / "mlflow.db"
+MLFLOW_TRACKING_URI: str = f"sqlite:///{MLFLOW_DB_PATH}"
+MLFLOW_ARTIFACT_ROOT: Path = PROJECT_ROOT / "mlruns"
+MLFLOW_UI_PORT: int = 5001
+MLFLOW_EXPERIMENT: str = "credit-monitor-baseline"
+REGISTERED_MODEL_NAME: str = "credit-default-baseline"
+CHAMPION_ALIAS: str = "champion"
 QUARANTINE_DIR: Path = DATA_DIR / "quarantine"
 VALIDATION_REPORTS_DIR: Path = REPORTS_DIR / "validation"
 

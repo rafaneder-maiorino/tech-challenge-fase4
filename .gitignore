@@ -10,8 +10,10 @@
 # código sumiria do commit sem aviso nenhum.
 /data/
 
-# Rastreamento local do MLflow (gerado em runtime).
+# Rastreamento local do MLflow (gerado em runtime): artefatos e o banco
+# SQLite que sustenta o registry.
 /mlruns/
+/mlflow.db
 
 # Relatórios gerados (drift, HTML do Evidently, validação de lote) — regeneráveis.
 #

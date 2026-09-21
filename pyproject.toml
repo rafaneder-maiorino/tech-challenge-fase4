@@ -14,6 +14,9 @@ dependencies = [
     # Statistics for the drift tests (KS, chi-square) of stage 2.
     "scipy>=1.13",
     "scikit-learn>=1.5",
+    # Modelo challenger do baseline (etapa 1); o campeão sai da comparação
+    # com a regressão logística.
+    "xgboost>=2.1",
     # Data contracts (stage 1) and drift reports (stage 2).
     "pandera>=0.20",
     "evidently>=0.4.40",
