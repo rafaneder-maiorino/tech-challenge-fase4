@@ -24,6 +24,11 @@ DIRTY_DATA_DIR: Path = DATA_DIR / "dirty"
 CLEAN_DATA_DIR: Path = DATA_DIR / "clean"
 # Reference (treino + linha de base do drift) e holdout (controle do teste A/A).
 PROCESSED_DATA_DIR: Path = DATA_DIR / "processed"
+# Lotes mensais simulados da etapa 2: features, predições e rótulos
+# em arquivos separados, porque em produção eles chegam em momentos
+# diferentes.
+PRODUCTION_DATA_DIR: Path = DATA_DIR / "production"
+SIMULATION_REPORTS_DIR: Path = REPORTS_DIR / "simulation"
 
 # --------------------------------------------------------------------------
 # MLflow

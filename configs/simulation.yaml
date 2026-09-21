@@ -1,0 +1,81 @@
+# Parâmetros da simulação de drift em produção (etapa 2).
+#
+# Nenhum número mágico no código: tudo que um revisor pode querer discordar
+# está aqui. Os pesos b_* e pi_total foram calibrados contra a rampa de PSI
+# descrita em docs/simulation.md e então CONGELADOS — os valores abaixo são os
+# congelados, e mudá-los invalida reports/simulation/summary.md.
+
+# Semente única para os seis meses, a ablação e o lote multivariado.
+seed: 20260921
+
+# Seis meses de choque, intensidade s = mês / 6. O mês 0 é controle (s = 0).
+n_months: 6
+
+# 44.208 linhas de holdout / 6. Sem reposição dentro do lote.
+batch_size: 7368
+
+# ------------------------------------------------------------------------
+# Mecanismo 1 — composição da carteira
+#
+# Pesos do expoente w_i = exp(s * sum(b_k * r_k)), onde r_k é o escore normal
+# de posto calculado no reference (nunca z-score bruto — achados 4 e 6).
+# ------------------------------------------------------------------------
+composition:
+  b_util: 0.90      # utilização do rotativo sobe
+  b_age: 0.45       # idade cai (entra com sinal negativo na fórmula)
+  b_d30: 0.70       # atrasos de 30-59 dias aparecem primeiro
+  b_d60: 0.60       # 60-89 dias entram com defasagem
+  b_d90: 0.60       # 90+ dias entram com defasagem maior
+  lag_d60_months: 2 # 60-89d só começa a se mover no mês 2
+  lag_d90_months: 3 # 90+d só começa a se mover no mês 3
+
+# ------------------------------------------------------------------------
+# Mecanismo 2 — inflação nominal (só em linhas com income_missing == 0)
+# ------------------------------------------------------------------------
+inflation:
+  pi_total: 0.10    # +10% de renda nominal no mês 6
+
+# ------------------------------------------------------------------------
+# Mecanismo 3 — estresse macroeconômico (rótulos 0 -> 1 apenas)
+# ------------------------------------------------------------------------
+stress:
+  extra_default_rate_at_full: 0.03   # +3 p.p. de inadimplência em s = 1
+
+# ------------------------------------------------------------------------
+# Cenário só-multivariado (lote separado, para o teste MMD do dia 8)
+#
+# O par é o mais forte entre as colunas que nenhum outro mecanismo toca —
+# ver docs/simulation.md §4 para o ranking completo e a justificativa.
+# ------------------------------------------------------------------------
+multivariate:
+  tolerance: 0.02
+  pairs:
+    # Primário: o par mais forte entre as colunas que nenhum outro mecanismo
+    # toca (Spearman de referência 0,4640). Ver docs/simulation.md §4.
+    - label: primary_by_dependence
+      column_x: NumberOfOpenCreditLinesAndLoans
+      column_y: NumberRealEstateLoansOrLines
+      target_spearman: -0.46
+    # Segundo par, incluído porque o primário produziu resultado NULO: a
+    # inversão é invisível aos testes univariados e também inofensiva ao
+    # modelo. Este é o canal de aperto de crédito do DAG — jovens com
+    # utilização alta — e inverter a dependência custa AUC de verdade.
+    # Manter os dois é o que separa "indetectável" de "inofensivo".
+    - label: credit_tightening_channel
+      column_x: RevolvingUtilizationOfUnsecuredLines
+      column_y: age
+      target_spearman: 0.27
+
+# ------------------------------------------------------------------------
+# Liga/desliga por mecanismo. A ablação do dia 12 percorre estas três chaves.
+# ------------------------------------------------------------------------
+mechanisms:
+  composition: true
+  inflation: true
+  stress: true
+
+# Grade de PSI usada na calibração: 10 bins de quantil cortados no reference.
+psi:
+  bins: 10
+  warn_threshold: 0.10
+  alert_threshold: 0.25
