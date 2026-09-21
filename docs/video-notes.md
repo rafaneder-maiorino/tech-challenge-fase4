@@ -113,13 +113,34 @@ Evidently — é a ferramenta que a rubrica exige.
 > pegou foi o lote do mês zero, que é controle e tinha de reproduzir um número
 > que eu já conhecia. Lote de controle não é formalidade."
 
-### E. `[RESERVADO — dia 8, teste A/A]`
+### E. A regra que o painel usaria está errada — e o A/A mediu o quanto
 
-O resultado do A/A pode **deslocar** um dos quatro acima. Candidato natural a
-sair: **D**, que é o mais técnico e o menos acionável. Se o A/A mostrar taxa de
-falso alarme alta com p-valores, ele se encaixa direto ao lado de **C** como
-terceiro exemplo de "a ferramenta responde com confiança a uma pergunta que você
-não fez".
+> achado #11 · **desloca o herói D**
+
+| | |
+|---|---|
+| **Número** | KS sem correção no nosso tamanho de lote: **21,5% dos lotes limpos acendem o painel**. PSI > 0,25: **0,0%** em 200 sorteios. |
+| **Na tela** | `reports/drift_tests/false_alarm_rate.png` — a linha azul pairando sobre a linha de alfa |
+| **Comando** | `make aa-test` |
+
+**Falado (~15s):**
+> "Peguei o conjunto que reservei no começo, sorteei duzentos lotes dele e
+> comparei com a referência. Não há drift nenhum aí: todo alarme é falso. Com
+> KS sem correção, um em cada cinco lotes perfeitamente normais acende o painel
+> inteiro. Com PSI no limiar de bloqueio, zero em duzentos. E o que eu vinha
+> dizendo sobre o KS estava errado — o problema não é amostra grande, é onze
+> features testadas ao mesmo tempo."
+
+**Desloca D** (o lote de controle que pegou o `pyfunc`). Os dois são histórias
+de "o instrumento mentiu", mas **E** termina numa decisão operacional — qual
+regra usar, com qual limiar — e **D** termina num bug corrigido. E o gráfico é
+melhor na tela que uma linha de tabela.
+
+**Se sobrar tempo**, D volta como frase de dez segundos dentro de **C**: é o
+terceiro exemplo de ferramenta falhando em silêncio.
+
+**Nota:** o MMD (achado #12) é o segundo candidato desta rodada e ficou de fora
+por pouco — ver "Descartados".
 
 ---
 
@@ -214,7 +235,9 @@ Achados reais que não cabem em cinco minutos. Um dia cada, e o motivo.
 | **#5 — reponderar piora a probabilidade** (Brier 0,1356 contra 0,0623 de um chute fixo) | **O corte mais doloroso.** É um resultado forte e contraintuitivo, mas exige explicar calibração *antes*, e calibração já é o que sustenta o 2x2. Dois conceitos novos no mesmo vídeo é um a mais. Candidato número 1 se sobrar tempo. |
 | **#8 — a ablação refutou o desenho** (inflação quase inerte) | Vai como **uma frase** dentro de **B**, não como achado próprio. |
 | **#10 (parte negativa) — o Evidently *não* tem o bug do dia 6** | Intelectualmente honesto e narrativamente morto: "procurei um problema e não achei" não sustenta trinta segundos. Fica no `findings.md`. |
-| Par multivariado com resultado nulo (+0,0024 contra -0,0168) | Precisa do dia 8 para fazer sentido. Reavaliar depois do A/A. |
+| **#12 — MMD detecta o que nenhuma marginal revela** (PSI 0,0041 em toda feature, MMD p ≤ 0,001 no piso permutacional, par invertido em #1 de 55) | **O corte difícil desta rodada.** Resultado forte e o único que justifica uma ferramenta a mais. Mas exige explicar o que é uma distribuição conjunta *e* o que é um teste de permutação, e o vídeo já gasta seu orçamento de conceito novo em calibração. Vai como **uma frase** no fecho: "existe drift que só um teste multivariado vê, e está medido no repositório". Candidato número 1 se o vídeo puder passar de cinco minutos. **Se entrar, entra com a ressalva**: o MMD ordena por tamanho estatístico e não por dano — o lote inofensivo tem MMD² 3,8x o do danoso. |
+| Par multivariado com resultado nulo (+0,0024 contra -0,0168) | Absorvido por #12, que também ficou de fora. |
+| Viés de pequena amostra do PSI (28,5% a n=250, previsto por `(bins-1)(1/n+1/m)`) | A metade menos interessante do #11: o vídeo usa o nosso tamanho de lote, onde o PSI é a regra boa. Fica como resposta se perguntarem "e se o lote for pequeno?". |
 | Determinismo byte a byte do HTML (UUID aleatório) | Decisão de engenharia, não achado sobre o problema. Boa resposta *se perguntarem*. |
 
 ---

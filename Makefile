@@ -5,7 +5,7 @@
 
 .PHONY: help install download inspect lint test \
         validate-bad-batch validate-clean-batch \
-        prepare train recheck-correlation mlflow-ui simulate drift-reports publish-reports
+        prepare train recheck-correlation mlflow-ui simulate drift-reports publish-reports aa-test mmd
 
 # Default target: `make` with no arguments lists what exists.
 help:
@@ -22,6 +22,8 @@ help:
 	@echo "  make simulate  - gera seis meses de drift, pontua e escreve o resumo"
 	@echo "  make drift-reports - gera os relatórios de drift (em reports/evidently/_build, ignorado)"
 	@echo "  make publish-reports - publica o conjunto curado no repositório (ato deliberado)"
+	@echo "  make aa-test   - teste A/A e varredura significância vs magnitude"
+	@echo "  make mmd       - testes MMD, A/A do MMD e localização por par"
 	@echo "  make lint      - roda o ruff (lint + formatação)"
 	@echo "  make test      - roda a suíte de testes (pytest)"
 
@@ -128,3 +130,12 @@ drift-reports:
 # etapa, entrega final —, nunca efeito colateral de olhar um relatório.
 publish-reports:
 	uv run python scripts/publish_reports.py
+
+# Teste A/A: amostras do holdout contra a referência, onde todo alarme é falso.
+# Determinístico pela semente. `--reuse` aproveita o cache em data/drift_tests.
+aa-test:
+	uv run python scripts/aa_test.py
+
+# MMD nos lotes, A/A do próprio MMD e localização por par de features.
+mmd:
+	uv run python scripts/mmd_test.py

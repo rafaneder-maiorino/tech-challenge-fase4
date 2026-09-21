@@ -877,3 +877,201 @@ alguém põe os dois lado a lado. O cross-check custou uma tabela; sem ele, o
 projeto teria dois painéis — o nosso `summary.md` e o HTML do Evidently —
 dizendo coisas diferentes sobre `DebtRatio`, e a descoberta viria de alguém
 apontando a discrepância numa apresentação.
+
+---
+
+## 11. A afirmação sobre o KS estava errada — o problema é outro
+
+**Etapa 2 · 2026-09-22 · `src/credit_monitor/drift_tests/aa.py`**
+
+O plano vinha repetindo que "o KS gera falso alarme com amostra grande". O teste
+A/A — 200 amostras do holdout contra a referência completa, sete tamanhos, sem
+drift algum — mostra que **isso é falso**.
+
+### A taxa por feature não cresce com n
+
+| tipo de feature | n = 250 | n = 1.000 | n = 7.000 | n = 20.000 |
+|---|---|---|---|---|
+| contínuas (4) | 2,9% | 5,1% | 5,9% | 6,2% |
+| contagens (7) | 0,4% | 0,6% | 0,3% | 0,6% |
+
+Sob o nulo verdadeiro os p-valores do KS são uniformes, então a taxa por
+feature fica em **alfa para qualquer n** — é o que as contínuas fazem, orbitando
+0,05 do menor ao maior tamanho. Nas contagens ela fica de cinco a dez vezes
+**abaixo** de alfa, porque os empates tornam o KS conservador: nos três
+contadores de atraso a taxa é exatamente **0,000 em todos os tamanhos**.
+
+### Os dois problemas reais
+
+**Múltiplas comparações.** Onze features a 5% fazem o painel inteiro acender em
+**12% a 25%** dos lotes limpos, e isso quase não depende de n:
+
+| n | KS sem correção | KS + Bonferroni | KS + BH |
+|---|---|---|---|
+| 250 | 13,5% | 0,5% | 0,5% |
+| 1.000 | 22,0% | 3,0% | 3,0% |
+| 7.000 | **21,5%** | 1,5% | 1,5% |
+| 20.000 | 24,5% | 1,5% | 1,5% |
+
+Bonferroni e Benjamini-Hochberg **coincidem em todos os tamanhos**. Não é
+coincidência numérica: sob o nulo raramente há mais de um p-valor pequeno, e aí
+o corte do BH no primeiro posto (`alfa/11`) é o próprio Bonferroni.
+
+**Significância não é magnitude.** Varrendo só o mecanismo de inflação:
+
+| π | n | p-valor KS (renda) | PSI | Δ previsão média | Δ AUC |
+|---|---|---|---|---|---|
+| 0,01 | 1.000 | 2,0e-01 | 0,0057 | -0,00036 | +0,00104 |
+| 0,01 | 44.000 | **6,0e-11** | 0,0015 | -0,00035 | -0,00032 |
+| 0,10 | 44.000 | **1,2e-80** | 0,0209 | -0,00151 | +0,00073 |
+
+**O mesmo deslocamento** de 1% na renda é invisível ao KS a n = 1.000
+(p = 0,20) e tem p = 6e-11 a n = 44.000. O que mudou não foi o efeito — a
+previsão média se move 3,5 pontos-base nos dois casos — foi o tamanho do lote.
+É alarme verdadeiro e operacionalmente inútil.
+
+### O PSI falha no regime oposto, e de forma prevista
+
+| n | PSI médio medido | previsto `(bins-1)(1/n+1/m)` | razão |
+|---|---|---|---|
+| 250 | 0,0412 | 0,0437 | 0,94 |
+| 1.000 | 0,0115 | 0,0110 | 1,04 |
+| 7.000 | 0,0019 | 0,0017 | 1,13 |
+| 20.000 | 0,0008 | 0,0007 | 1,21 |
+
+O viés de pequena amostra não é mistério: bate com a aproximação qui-quadrado
+dentro de 6% nos tamanhos pequenos. A **taxa de falso alarme do PSI > 0,10 vai
+a 28,5% a n = 250** e some a partir de n = 1.000.
+
+E quem paga são as colunas com mais bins — ou seja, **é o preço da correção do
+dia 6**. A regra de um bin por valor consertou a cegueira do PSI nas colunas
+94% zeradas e, em troca, deu a elas 17 e 26 bins:
+
+| feature | disparos a n=250 | bins | viés previsto |
+|---|---|---|---|
+| `NumberOfTimes90DaysLate` | 12,0% | 17 | 0,0642 |
+| `NumberRealEstateLoansOrLines` | 10,5% | 26 | **0,1002** |
+| `NumberOfTime30-59DaysPastDueNotWorse` | 7,5% | 13 | 0,0481 |
+
+O viés previsto da segunda linha **é** o limiar de alerta. Uma correção que
+resolve um problema num regime e cria outro no regime oposto.
+
+### Recomendação operacional (n ≈ 7.000)
+
+| regra | falso alarme | veredito |
+|---|---|---|
+| KS sem correção | 21,5% | inutilizável como portão |
+| KS + Bonferroni | 1,5% | responde à pergunta errada |
+| PSI > 0,10 | **0,0%** | alerta |
+| PSI > 0,25 | **0,0%** | bloqueio |
+
+**PSI decide o veredito; KS fica como diagnóstico, sempre corrigido.** Zero
+falsos alarmes em 200 sorteios limita a taxa real a menos de 1,5% com 95% de
+confiança. E o limiar **não é transportável**: abaixo de n ≈ 500 a ordem se
+inverte e o PSI vira o pior dos dois.
+
+### O que aprendi disso
+
+A afirmação errada durou semanas porque era **plausível** — "amostra grande
+detecta tudo" soa certo e tem um fundo de verdade (o problema da magnitude). O
+que ela errava era o mecanismo, e errar o mecanismo leva à correção errada: com
+ela, alguém aumentaria o alfa em lotes grandes, que é exatamente a mudança que
+não resolve nada. O A/A custou dois minutos de cálculo.
+
+---
+
+## 12. MMD vê o drift que nenhuma marginal revela
+
+**Etapa 2 · 2026-09-22 · `src/credit_monitor/drift_tests/mmd.py`**
+
+Os dois lotes só-multivariados da etapa 2 têm **toda marginal idêntica por
+construção** (a dependência de um par foi invertida por permutação) e PSI
+univariado de **0,0041** em todas as onze features — verde com duas ordens de
+grandeza de folga. Nenhum teste univariado pode vê-los, não por fraqueza, mas
+porque não há nada nas marginais para ver.
+
+| lote | MMD² | p | detecta |
+|---|---|---|---|
+| mês 0 (controle) | -0,000076 | 0,651 | **não** ✓ |
+| multivariado primário | 0,003463 | ≤ 0,001 (piso) | **SIM** |
+| multivariado aperto de crédito | 0,000922 | ≤ 0,001 (piso) | **SIM** |
+| mês 6 (sanidade) | 0,064634 | ≤ 0,001 (piso) | SIM |
+
+Os três "≤ 0,001" são o **piso do teste**, não um valor exato: com 1.000
+permutações o menor p atingível é 1/1001, porque a estatística observada conta
+como um sorteio do nulo. O teste diz "no máximo isso"; quanto menor, ele não
+tem como saber. Escrever `p = 0,001` inventaria precisão que o método não tem,
+e convidaria alguém a comparar dois resultados no piso como se um fosse
+evidência mais forte.
+
+O controle **não** é detectado, que é a condição mínima para o resto valer. E o
+próprio MMD passou por um A/A: **4,0%** de falso alarme em 100 repetições, com
+p-valores uniformes (quartis 0,25 / 0,50 / 0,75). Calibrado.
+
+### Localização: MMD diz *que* mudou, não *onde*
+
+MMD é um número só sobre onze dimensões. Rodá-lo por par recupera a metade que
+falta, e nos dois lotes o par invertido sai em **primeiro**:
+
+| lote | par no topo | MMD² | posição do par invertido |
+|---|---|---|---|
+| primário | `open_lines` / `real_estate` | 0,026 | **#1 de 55** |
+| aperto de crédito | `utilização` / `idade` | 0,010 | **#1 de 55** |
+
+No primário, os pares seguintes também envolvem `NumberRealEstateLoansOrLines`:
+permutar uma coluna muda a dependência dela com **todas** as outras, não só com
+a parceira. A localização aponta para a coluna tanto quanto para o par — o que é
+informação útil, não ruído.
+
+### O MMD ordena por tamanho estatístico, não por dano
+
+Este é o alerta mais importante da seção, e ele aparece nos próprios números
+acima. Os dois lotes só-multivariados são casos diferentes — um é inofensivo, o
+outro machuca — e o MMD os ordena **ao contrário**:
+
+| lote | Spearman original do par | MMD² | Δ AUC no campeão |
+|---|---|---|---|
+| primário (`open_lines` / `real_estate`) | 0,464 | **0,003463** | **+0,0024** (inofensivo) |
+| aperto de crédito (`utilização` / `idade`) | 0,275 | 0,000922 | **-0,0168** (danoso) |
+
+O lote **inofensivo** tem MMD² **3,8x maior** que o danoso. E a razão é
+mecânica, não acidental: a dependência original do primeiro par é mais forte
+(Spearman 0,464 contra 0,275), então invertê-la desloca mais massa da
+distribuição conjunta. O MMD mede exatamente esse deslocamento — e deslocamento
+não é dano.
+
+É o 2x2 de novo, em forma multivariada. O achado §9 mostrou que drift de
+feature e degradação de modelo são eixos separados; aqui, **magnitude de drift
+multivariado e degradação também são**. Um detector responde "o quanto a
+distribuição mudou", e quem opera precisa de "o quanto isso me custa" — são
+perguntas diferentes e nenhum teste estatístico responde a segunda.
+
+O mesmo princípio já tinha aparecido no dia 7, no ranking por **PSI x ganho**:
+`age` driftou mais que `NumberOfTimes90DaysLate` (PSI 0,314 contra 0,302) e vale
+um oitavo do impacto, porque o modelo se apoia 3,29% na idade e 28,47% no
+contador. A correção é a mesma nos dois casos: **pondere o sinal do detector
+por alguma medida de quanto o modelo depende daquilo**, ou ordene por dano
+medido, e nunca apresente a magnitude estatística como prioridade.
+
+### Três escolhas que decidiram o resultado
+
+**Escores de posto, não valores brutos.** O kernel é função de distância; uma
+coluna com desvio 249,76 dominaria toda distância par a par e o teste mediria só
+ela. É a lição dos achados §4, §6 e §8 aplicada a kernels.
+
+**Largura de banda pela mediana, na referência.** Muito menor que as distâncias
+típicas e o kernel vira a identidade; muito maior e todo ponto parece igual.
+
+**Permutações a partir do kernel pré-computado.** `a'Ka` para todas as
+permutações de uma vez é um produto de matrizes; recomputar o kernel mil vezes
+seria mil vezes o trabalho. Quatro testes de 1.000 permutações com n = 2.000 por
+lado custam **1,1 s**.
+
+### Um detalhe que um teste ingênuo esconderia
+
+"MMD de uma amostra contra ela mesma é zero" é falso para o estimador não
+enviesado. Ele tira a diagonal dos termos internos mas o termo cruzado mantém
+todos os pares, então com X = Y os auto-pares sobrevivem só no cruzado e o
+MMD² cai perto de **-2/n**. O teste está no repositório afirmando esse offset,
+porque a versão ingênua falharia e pareceria bug no kernel. O caso que de fato
+tem de dar zero é **duas metades disjuntas** da mesma população.

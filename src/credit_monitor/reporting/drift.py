@@ -67,6 +67,14 @@ CONTINUOUS_FEATURES: Final[tuple[str, ...]] = (
 PREDICTION_COLUMN: Final[str] = "probability"
 LABEL_COLUMN: Final[str] = "label"
 
+# Below this many rows a PSI threshold means nothing: the A/A measured the
+# statistic's own small-sample bias reaching the warning threshold at n = 250 on
+# the 26-bin column (docs/findings.md §11). A verdict there would be a statement
+# about the sample size, not about the data — so the monitor must refuse to
+# produce one rather than produce a green or a red it cannot support.
+MIN_BATCH_SIZE: Final[int] = 1000
+
+VERDICT_INSUFFICIENT_SAMPLE: Final[str] = "amostra insuficiente"
 VERDICT_STABLE: Final[str] = "estável"
 VERDICT_MODERATE: Final[str] = "moderado"
 VERDICT_SIGNIFICANT: Final[str] = "significativo"
@@ -97,8 +105,19 @@ reference_psi_stattest = StatTest(
 register_stattest(reference_psi_stattest, _reference_psi_impl)
 
 
-def verdict(psi_value: float) -> str:
-    """Traffic light for a PSI value, on the 0.10 / 0.25 bands."""
+def verdict(psi_value: float, rows: int | None = None) -> str:
+    """Traffic light for a PSI value, on the 0.10 / 0.25 bands.
+
+    Args:
+        psi_value: The statistic.
+        rows: Batch size. When given and below :data:`MIN_BATCH_SIZE`, the
+            verdict is ``INSUFFICIENT_SAMPLE`` — **never green, never red**.
+            A small batch does not make drift less likely; it makes the
+            measurement unable to distinguish drift from its own bias, and
+            reporting either colour would misrepresent that as knowledge.
+    """
+    if rows is not None and rows < MIN_BATCH_SIZE:
+        return VERDICT_INSUFFICIENT_SAMPLE
     if psi_value < WARN_THRESHOLD:
         return VERDICT_STABLE
     if psi_value < ALERT_THRESHOLD:
