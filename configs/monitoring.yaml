@@ -1,0 +1,70 @@
+# Política de monitoramento de drift — etapa 2, medida no teste A/A.
+#
+# Cada número aqui saiu de uma medição, não de convenção. O relatório está em
+# reports/drift_tests/summary.md e o raciocínio em docs/findings.md §11.
+
+# ------------------------------------------------------------------------
+# Regra de veredito
+#
+# O PSI decide; o KS fica como diagnóstico. Medido a n = 7.000 sobre 200
+# sorteios de uma população SEM drift:
+#
+#   KS sem correção .... 21,5% dos lotes limpos acendem o painel
+#   KS + Bonferroni .....  1,5%
+#   PSI > 0,10 ..........  0,0%
+#   PSI > 0,25 ..........  0,0%
+#
+# Zero em 200 sorteios limita a taxa real a menos de 1,5% com 95% de confiança.
+# ------------------------------------------------------------------------
+verdict_rule: psi
+psi_warn_threshold: 0.10
+psi_alert_threshold: 0.25
+
+# ------------------------------------------------------------------------
+# Tamanho mínimo de lote — a restrição que torna os limiares acima válidos
+#
+# O PSI é enviesado para cima em amostra pequena, e o viés é previsível:
+# (bins - 1) * (1/n + 1/m). Medido contra a teoria dentro de 6%.
+#
+# A n = 250, `NumberRealEstateLoansOrLines` tem 26 bins e viés previsto de
+# 0,1002 — que É o limiar de alerta. Na prática, 28,5% dos lotes limpos
+# disparavam PSI > 0,10 naquele tamanho.
+#
+# Abaixo deste piso o veredito tem de ser INSUFFICIENT_SAMPLE: nunca verde,
+# nunca vermelho. Um lote pequeno não torna o drift menos provável — torna a
+# medição incapaz de separar drift do próprio viés, e pintar qualquer uma das
+# duas cores apresentaria isso como conhecimento.
+#
+# 1.000 e não 500: a 500 o falso alarme do PSI > 0,10 já caiu para 1,0%, mas a
+# margem é estreita e o viés ainda é 0,0212 em média. 1.000 é o primeiro
+# tamanho com 0,0% medido.
+# ------------------------------------------------------------------------
+min_batch_size: 1000
+insufficient_sample_verdict: INSUFFICIENT_SAMPLE
+
+# ------------------------------------------------------------------------
+# KS: diagnóstico, nunca portão
+#
+# Sob o nulo verdadeiro os p-valores do KS são uniformes, então a taxa por
+# feature fica em alfa para qualquer n — o problema nunca foi amostra grande.
+# São múltiplas comparações (11 features) e o fato de significância não ser
+# magnitude: a 1% de inflação na renda, p = 6e-11 com n = 44.000 enquanto a
+# previsão média se move 3,5 pontos-base.
+#
+# Se for usado, sempre com correção. Bonferroni e Benjamini-Hochberg
+# coincidiram em todos os tamanhos medidos.
+# ------------------------------------------------------------------------
+ks_alpha: 0.05
+ks_correction: bonferroni
+ks_decides_verdict: false
+
+# ------------------------------------------------------------------------
+# MMD: segunda linha, para o drift que nenhuma marginal revela
+#
+# Atenção ao ler a magnitude: o MMD ordena por tamanho estatístico, NÃO por
+# dano. Ver docs/findings.md §12.
+# ------------------------------------------------------------------------
+mmd_enabled: true
+mmd_n_per_side: 2000
+mmd_permutations: 1000
+mmd_alpha: 0.05

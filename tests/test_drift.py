@@ -238,3 +238,47 @@ def test_gain_shares_fall_back_to_uniform_without_a_booster() -> None:
 
     assert set(shares) == set(MODEL_FEATURES)
     assert sum(shares.values()) == pytest.approx(1.0)
+
+
+# --------------------------------------------------------------------------
+# Minimum batch size (docs/findings.md §11)
+# --------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("psi_value", [0.0, 0.05, 0.15, 0.90])
+def test_a_small_batch_gets_no_colour_at_all(psi_value: float) -> None:
+    # Never green, never red. A small batch does not make drift less likely; it
+    # makes the measurement unable to separate drift from PSI's own bias, which
+    # reaches the warning threshold at n = 250 on the 26-bin column. Either
+    # colour would report that inability as knowledge.
+    assert (
+        drift.verdict(psi_value, rows=drift.MIN_BATCH_SIZE - 1)
+        == drift.VERDICT_INSUFFICIENT_SAMPLE
+    )
+
+
+def test_at_the_minimum_the_normal_bands_apply_again() -> None:
+    assert drift.verdict(0.05, rows=drift.MIN_BATCH_SIZE) == drift.VERDICT_STABLE
+    assert drift.verdict(0.30, rows=drift.MIN_BATCH_SIZE) == drift.VERDICT_SIGNIFICANT
+
+
+def test_omitting_the_row_count_keeps_the_old_behaviour() -> None:
+    # The guard is opt-in: callers that do not know the batch size still get a
+    # verdict, so adding it did not silently change every existing call site.
+    assert drift.verdict(0.30) == drift.VERDICT_SIGNIFICANT
+
+
+def test_the_minimum_matches_the_monitoring_config() -> None:
+    # The config is what stage 3 will read; the code must not disagree with it.
+    import yaml
+
+    from credit_monitor.constants import PROJECT_ROOT
+
+    config = yaml.safe_load(
+        (PROJECT_ROOT / "configs" / "monitoring.yaml").read_text(encoding="utf-8")
+    )
+
+    assert config["min_batch_size"] == drift.MIN_BATCH_SIZE
+    assert config["psi_warn_threshold"] == drift.WARN_THRESHOLD
+    assert config["psi_alert_threshold"] == drift.ALERT_THRESHOLD
+    assert config["ks_decides_verdict"] is False

@@ -993,9 +993,16 @@ porque não há nada nas marginais para ver.
 | lote | MMD² | p | detecta |
 |---|---|---|---|
 | mês 0 (controle) | -0,000076 | 0,651 | **não** ✓ |
-| multivariado primário | 0,003463 | 0,001 | **SIM** |
-| multivariado aperto de crédito | 0,000922 | 0,001 | **SIM** |
-| mês 6 (sanidade) | 0,064634 | 0,001 | SIM |
+| multivariado primário | 0,003463 | ≤ 0,001 (piso) | **SIM** |
+| multivariado aperto de crédito | 0,000922 | ≤ 0,001 (piso) | **SIM** |
+| mês 6 (sanidade) | 0,064634 | ≤ 0,001 (piso) | SIM |
+
+Os três "≤ 0,001" são o **piso do teste**, não um valor exato: com 1.000
+permutações o menor p atingível é 1/1001, porque a estatística observada conta
+como um sorteio do nulo. O teste diz "no máximo isso"; quanto menor, ele não
+tem como saber. Escrever `p = 0,001` inventaria precisão que o método não tem,
+e convidaria alguém a comparar dois resultados no piso como se um fosse
+evidência mais forte.
 
 O controle **não** é detectado, que é a condição mínima para o resto valer. E o
 próprio MMD passou por um A/A: **4,0%** de falso alarme em 100 repetições, com
@@ -1015,6 +1022,36 @@ No primário, os pares seguintes também envolvem `NumberRealEstateLoansOrLines`
 permutar uma coluna muda a dependência dela com **todas** as outras, não só com
 a parceira. A localização aponta para a coluna tanto quanto para o par — o que é
 informação útil, não ruído.
+
+### O MMD ordena por tamanho estatístico, não por dano
+
+Este é o alerta mais importante da seção, e ele aparece nos próprios números
+acima. Os dois lotes só-multivariados são casos diferentes — um é inofensivo, o
+outro machuca — e o MMD os ordena **ao contrário**:
+
+| lote | Spearman original do par | MMD² | Δ AUC no campeão |
+|---|---|---|---|
+| primário (`open_lines` / `real_estate`) | 0,464 | **0,003463** | **+0,0024** (inofensivo) |
+| aperto de crédito (`utilização` / `idade`) | 0,275 | 0,000922 | **-0,0168** (danoso) |
+
+O lote **inofensivo** tem MMD² **3,8x maior** que o danoso. E a razão é
+mecânica, não acidental: a dependência original do primeiro par é mais forte
+(Spearman 0,464 contra 0,275), então invertê-la desloca mais massa da
+distribuição conjunta. O MMD mede exatamente esse deslocamento — e deslocamento
+não é dano.
+
+É o 2x2 de novo, em forma multivariada. O achado §9 mostrou que drift de
+feature e degradação de modelo são eixos separados; aqui, **magnitude de drift
+multivariado e degradação também são**. Um detector responde "o quanto a
+distribuição mudou", e quem opera precisa de "o quanto isso me custa" — são
+perguntas diferentes e nenhum teste estatístico responde a segunda.
+
+O mesmo princípio já tinha aparecido no dia 7, no ranking por **PSI x ganho**:
+`age` driftou mais que `NumberOfTimes90DaysLate` (PSI 0,314 contra 0,302) e vale
+um oitavo do impacto, porque o modelo se apoia 3,29% na idade e 28,47% no
+contador. A correção é a mesma nos dois casos: **pondere o sinal do detector
+por alguma medida de quanto o modelo depende daquilo**, ou ordene por dano
+medido, e nunca apresente a magnitude estatística como prioridade.
 
 ### Três escolhas que decidiram o resultado
 

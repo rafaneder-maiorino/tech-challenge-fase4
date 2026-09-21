@@ -15,6 +15,23 @@ from credit_monitor.drift_tests.aa import (
 from credit_monitor.reporting.drift import CONTINUOUS_FEATURES
 
 
+def format_pvalue(pvalue: float, permutations: int) -> str:
+    """Render a permutation p-value, marking the ones that hit the floor.
+
+    A permutation test with ``B`` draws cannot return a p smaller than
+    ``1/(B+1)``: the observed statistic counts as one draw from the null. So a
+    result at the floor is **not** "p = 0.001" — it is "p is at most 0.001, and
+    this many permutations cannot say how much smaller". Printing the floor as
+    an exact value invents precision the test never had, and the difference
+    matters when someone later compares two floored p-values as if one were
+    stronger evidence than the other.
+    """
+    floor = 1.0 / (permutations + 1)
+    if pvalue <= floor + 1e-12:
+        return f"≤ {floor:.3f} (piso de {permutations} permutações)"
+    return f"{pvalue:.4f}"
+
+
 def _md(frame: pd.DataFrame, formats: dict[str, str]) -> str:
     header = "| " + " | ".join(frame.columns) + " |"
     divider = "|---" * len(frame.columns) + "|"
@@ -149,11 +166,14 @@ def mmd_tables(cache: Path) -> tuple[str, str, str]:
             {
                 "lote": batches["label"],
                 "MMD²": batches["mmd2"],
-                "p": batches["pvalue"],
+                "p": [
+                    format_pvalue(row.pvalue, int(row.permutations))
+                    for row in batches.itertuples()
+                ],
                 "detecta": np.where(batches["detected"], "**SIM**", "não"),
             }
         ),
-        {"MMD²": ".6f", "p": ".4f"},
+        {"MMD²": ".6f"},
     )
     pvalues = np.load(cache / "mmd_self_aa.npy")
     self_aa = (
@@ -176,11 +196,11 @@ def mmd_tables(cache: Path) -> tuple[str, str, str]:
                     for p in data["pairs"][:4]
                 ],
                 "MMD²": [p["mmd2"] for p in data["pairs"][:4]],
-                "p": [p["pvalue"] for p in data["pairs"][:4]],
+                "p": [format_pvalue(p["pvalue"], 200) for p in data["pairs"][:4]],
             }
         )
         blocks.append(
             f"**{label}** — o par invertido sai em **#{data['rank_of_expected']}**\n\n"
-            + _md(rows, {"MMD²": ".6f", "p": ".4f"})
+            + _md(rows, {"MMD²": ".6f"})
         )
     return table, self_aa, "\n\n".join(blocks)

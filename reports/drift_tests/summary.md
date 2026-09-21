@@ -95,6 +95,26 @@ A recomendação **depende do tamanho do lote**: abaixo de n ≈ 500 o PSI > 0,1
 inverte e passa a ser o pior dos dois (28,5% a n = 250). Um limiar calibrado num
 tamanho de lote está errado em outro.
 
+### Regra operacional: tamanho mínimo de lote
+
+> **Abaixo de n = 1.000 os limiares de PSI não valem. O veredito tem de ser
+> `INSUFFICIENT_SAMPLE` — nunca verde, nunca vermelho.**
+
+O viés de pequena amostra do PSI atinge o **limiar de alerta** a n = 250 na
+coluna de 26 bins: viés previsto de 0,1002 contra um limiar de 0,10. Nesse
+tamanho, 28,5% dos lotes sem drift algum disparavam.
+
+Um lote pequeno não torna o drift menos provável — torna a medição incapaz de
+separar drift do próprio viés. Pintar verde afirmaria estabilidade que não foi
+medida; pintar vermelho afirmaria drift que pode ser só o estimador. A única
+resposta honesta é recusar o veredito.
+
+O piso é 1.000 e não 500: a 500 o falso alarme já caiu para 1,0%, mas a margem
+é estreita e o viés médio ainda é 0,0212. **1.000 é o primeiro tamanho com 0,0%
+medido.** Registrado em `configs/monitoring.yaml` como `min_batch_size`;
+`credit_monitor.reporting.drift.verdict` já o aplica quando recebe o tamanho do
+lote, e a etapa 3 o transforma em portão.
+
 ---
 
 ## 2. Significância não é magnitude
@@ -161,9 +181,9 @@ mediria só ela. É a lição dos achados §4, §6 e §8 aplicada a kernels.
 | lote | MMD² | p | detecta |
 |---|---|---|---|
 | month_00 (controle) | -0.000076 | 0.6513 | não |
-| multivariado primário (open_lines / real_estate) | 0.003463 | 0.0010 | **SIM** |
-| multivariado aperto de crédito (utilização / idade) | 0.000922 | 0.0010 | **SIM** |
-| month_06 (sanidade) | 0.064634 | 0.0010 | **SIM** |
+| multivariado primário (open_lines / real_estate) | 0.003463 | ≤ 0.001 (piso de 1000 permutações) | **SIM** |
+| multivariado aperto de crédito (utilização / idade) | 0.000922 | ≤ 0.001 (piso de 1000 permutações) | **SIM** |
+| month_06 (sanidade) | 0.064634 | ≤ 0.001 (piso de 1000 permutações) | **SIM** |
 
 O lote de controle **não é detectado** (p = 0,65), que é a condição mínima para
 o teste valer alguma coisa. Os dois lotes só-multivariados **são** detectados no
@@ -180,19 +200,19 @@ Taxa de falso alarme: **4.0%** em 100 repetições, com p-valores uniformes (qua
 
 | par | MMD² | p |
 |---|---|---|
-| `NumberOfOpenCreditLinesAndLoans` / `NumberRealEstateLoansOrLines` **← par invertido** | 0.026168 | 0.0050 |
-| `DebtRatio` / `NumberRealEstateLoansOrLines` | 0.014563 | 0.0050 |
-| `MonthlyIncome` / `NumberRealEstateLoansOrLines` | 0.008163 | 0.0050 |
+| `NumberOfOpenCreditLinesAndLoans` / `NumberRealEstateLoansOrLines` **← par invertido** | 0.026168 | ≤ 0.005 (piso de 200 permutações) |
+| `DebtRatio` / `NumberRealEstateLoansOrLines` | 0.014563 | ≤ 0.005 (piso de 200 permutações) |
+| `MonthlyIncome` / `NumberRealEstateLoansOrLines` | 0.008163 | ≤ 0.005 (piso de 200 permutações) |
 | `age` / `NumberRealEstateLoansOrLines` | 0.003410 | 0.0100 |
 
 **aperto de crédito** — o par invertido sai em **#1**
 
 | par | MMD² | p |
 |---|---|---|
-| `RevolvingUtilizationOfUnsecuredLines` / `age` **← par invertido** | 0.010150 | 0.0050 |
-| `age` / `MonthlyIncome` | 0.004331 | 0.0050 |
-| `age` / `NumberOfDependents` | 0.004155 | 0.0050 |
-| `age` / `NumberRealEstateLoansOrLines` | 0.003393 | 0.0050 |
+| `RevolvingUtilizationOfUnsecuredLines` / `age` **← par invertido** | 0.010150 | ≤ 0.005 (piso de 200 permutações) |
+| `age` / `MonthlyIncome` | 0.004331 | ≤ 0.005 (piso de 200 permutações) |
+| `age` / `NumberOfDependents` | 0.004155 | ≤ 0.005 (piso de 200 permutações) |
+| `age` / `NumberRealEstateLoansOrLines` | 0.003393 | ≤ 0.005 (piso de 200 permutações) |
 
 Nos dois lotes o par invertido sai em primeiro. No primário, os pares seguintes
 também envolvem `NumberRealEstateLoansOrLines`: permutar uma coluna muda a

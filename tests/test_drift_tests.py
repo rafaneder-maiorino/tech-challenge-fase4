@@ -211,3 +211,24 @@ def test_benjamini_hochberg_rejection(pvalues: list[float], expected: bool) -> N
     # A single p of 0.03 does not survive BH across 11 hypotheses, which is why
     # BH and Bonferroni coincide under the null in this project's A/A.
     assert _any_bh_rejection(np.array(pvalues)) is expected
+
+
+# --------------------------------------------------------------------------
+# The permutation floor
+# --------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("permutations", [200, 1000])
+def test_a_floored_pvalue_is_reported_as_an_upper_bound(permutations: int) -> None:
+    # With B permutations the smallest attainable p is 1/(B+1), because the
+    # observed statistic counts as one draw from the null. Printing that as an
+    # exact value invents precision the test never had.
+    from credit_monitor.reporting.drift_tests_report import format_pvalue
+
+    floor = 1.0 / (permutations + 1)
+
+    rendered = format_pvalue(floor, permutations)
+
+    assert rendered.startswith("≤")
+    assert "piso" in rendered
+    assert format_pvalue(0.42, permutations) == "0.4200"

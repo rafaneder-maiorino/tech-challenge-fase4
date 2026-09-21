@@ -160,6 +160,26 @@ A recomendação **depende do tamanho do lote**: abaixo de n ≈ 500 o PSI > 0,1
 inverte e passa a ser o pior dos dois (28,5% a n = 250). Um limiar calibrado num
 tamanho de lote está errado em outro.
 
+### Regra operacional: tamanho mínimo de lote
+
+> **Abaixo de n = 1.000 os limiares de PSI não valem. O veredito tem de ser
+> `INSUFFICIENT_SAMPLE` — nunca verde, nunca vermelho.**
+
+O viés de pequena amostra do PSI atinge o **limiar de alerta** a n = 250 na
+coluna de 26 bins: viés previsto de 0,1002 contra um limiar de 0,10. Nesse
+tamanho, 28,5% dos lotes sem drift algum disparavam.
+
+Um lote pequeno não torna o drift menos provável — torna a medição incapaz de
+separar drift do próprio viés. Pintar verde afirmaria estabilidade que não foi
+medida; pintar vermelho afirmaria drift que pode ser só o estimador. A única
+resposta honesta é recusar o veredito.
+
+O piso é 1.000 e não 500: a 500 o falso alarme já caiu para 1,0%, mas a margem
+é estreita e o viés médio ainda é 0,0212. **1.000 é o primeiro tamanho com 0,0%
+medido.** Registrado em `configs/monitoring.yaml` como `min_batch_size`;
+`credit_monitor.reporting.drift.verdict` já o aplica quando recebe o tamanho do
+lote, e a etapa 3 o transforma em portão.
+
 ---
 
 ## 2. Significância não é magnitude
