@@ -35,6 +35,21 @@
 /reports/simulation/*
 !/reports/simulation/summary.md
 
+# Exceção: o conjunto curado de relatórios de drift. A rubrica pede os HTML no
+# repositório; cada um tem ~4 MB porque o JavaScript vai embutido, que é o que
+# os faz abrir offline sem CDN. Os demais meses regeneram com
+# `make drift-reports` e ficam de fora.
+!/reports/evidently/
+/reports/evidently/*
+!/reports/evidently/summary.md
+!/reports/evidently/index.html
+!/reports/evidently/scoring_month_00.html
+!/reports/evidently/scoring_month_03.html
+!/reports/evidently/scoring_month_06.html
+!/reports/evidently/label_month_06.html
+!/reports/evidently/stress_only_scoring_month_06.html
+!/reports/evidently/stress_only_label_month_06.html
+
 # Material de referência do curso: PDFs das aulas e o enunciado.
 # Nunca versionar — é conteúdo de terceiros.
 docs/_reference/
