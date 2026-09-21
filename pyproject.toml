@@ -19,7 +19,10 @@ dependencies = [
     "xgboost>=2.1",
     # Data contracts (stage 1) and drift reports (stage 2).
     "pandera>=0.20",
-    "evidently>=0.4.40",
+    # Fixado na versão exata, não numa faixa: a API do Evidently mudou de forma
+    # incompatível entre 0.4, 0.6 e 0.7, e um relatório gerado por uma versão
+    # diferente da documentada em docs/evidently.md não seria o mesmo artefato.
+    "evidently==0.7.23",
     # Observability (stage 3).
     "mlflow>=2.16",
     "prometheus-client>=0.21",
@@ -98,3 +101,10 @@ convention = "google"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+# O evidently arrasta o litestar, que emite DeprecationWarning próprios a cada
+# import. Silenciados por origem, não por categoria: um aviso de depreciação do
+# NOSSO código continua aparecendo.
+filterwarnings = [
+    "ignore::DeprecationWarning:litestar.*",
+    "ignore:.*litestar.*:DeprecationWarning",
+]
