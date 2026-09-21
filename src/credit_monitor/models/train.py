@@ -247,9 +247,11 @@ def _log_dataset(
     value can still be compared against the checksum in ``constants.py``
     without recomputing anything.
     """
+    # resolve() before as_uri(): a file URI has to be absolute, and the path
+    # arrives from a CLI flag that may well be relative.
     dataset = mlflow.data.from_pandas(
         pd.concat([features, target.rename("target")], axis=1),
-        source=source_path.as_uri(),
+        source=source_path.resolve().as_uri(),
         name=source_path.stem,
         digest=digest[:MLFLOW_DIGEST_MAX_CHARS],
         targets="target",
