@@ -40,6 +40,7 @@ import pandas as pd
 import pandera.pandas as pa
 
 from credit_monitor.constants import DELINQUENCY_COLUMNS, TARGET_COLUMN
+from credit_monitor.contracts.failures import blocking_failures, resolve_rule
 from credit_monitor.contracts.model import (
     DEBT_RATIO_MAX_WITH_INCOME,
     ModelInputSchema,
@@ -50,7 +51,6 @@ from credit_monitor.contracts.raw import (
     DELINQUENCY_SENTINELS,
     EXPECTED_COLUMNS,
     POSITIVE_LABEL,
-    REVOLVING_UTILIZATION_MAX,
 )
 
 log = logging.getLogger(__name__)
@@ -77,24 +77,49 @@ class PreprocessingParams:
     without reading the function body.
     """
 
-    utilization_cap: float = REVOLVING_UTILIZATION_MAX
+    utilization_cap: float = 10.0
     """Ceiling for ``RevolvingUtilizationOfUnsecuredLines``.
 
-    Inspection §8: 3,321 rows exceed 1 (2.21%) but only 241 exceed 10 (0.16%),
-    with a maximum of 50,708. Two defensible cuts, and they disagree about
-    3,080 rows:
+    **10.0, and the first version of this file had 1.0 on the strength of a
+    number that does not mean what it looks like.** Inspection §10 reports the
+    linear correlation between this column and the target as -0.00, which was
+    read as "the 3,080 rows above 1 carry no signal to lose". That reading was
+    wrong in the same way, and for the same reason, as the delinquency-counter
+    correlations of ``docs/findings.md`` §4: Pearson is a covariance ratio, and
+    241 rows reaching 50,708 against a mean of 6.05 (§4) dominate it entirely.
 
-    * **1.0** (the default) treats the column as what its name says — a
-      fraction of the available limit — and matches the contract, so the
-      cleaned frame passes ``ModelInputSchema`` with nothing left over.
-    * **10.0** would winsorise only the 241 implausible rows and keep genuine
-      over-limit behaviour (fees, an over-limit month) intact, at the price of
-      a standing warning-level contract violation.
+    Recomputed (``docs/findings.md`` §6):
 
-    The default is 1.0 because the cost of being wrong is low and measurable:
-    inspection §10 puts the linear correlation between this column and the
-    target at **-0.00**, so the 3,080 rows in dispute carry almost no signal to
-    lose. If that changes, this is the knob.
+    * Pearson on the full column: **-0.0018** — the -0.00 of §10.
+    * Pearson excluding the 241 rows above 10: **+0.2816**. Sign flip, and from
+      nothing to a third of the way to the target.
+    * Spearman on the full column: **0.2404**. Rank correlation is immune to
+      the tail and showed the real relationship the whole time.
+    * Univariate AUC of this column alone: **0.7778**.
+
+    And the default rates settle it. Against a 6.68% base rate: rows at or
+    below 1 default at **5.99%** (0.90x), rows in **(1, 10] at 39.61%
+    (5.93x)**, rows above 10 at **7.05%** (1.06x, i.e. indistinguishable from
+    the base rate and consistent with being an artefact).
+
+    So the column has exactly one highly discriminating region and it is the
+    one a cap of 1.0 destroys, by flattening those 3,080 rows onto the same
+    value as the 97.79% that default at 5.99%. A cap of 10.0 winsorises the
+    241 rows that carry no signal and keeps the band that carries almost all
+    of it.
+
+    The second reason is that this project is building a drift detector. The
+    tail above 1 is where an economic shock would first appear — utilisation
+    rising past the limit is what a credit squeeze looks like in this column —
+    and a reference distribution capped at 1.0 has no room above 1 for a
+    future batch to differ in. Capping at 1.0 would delete the region drift
+    lives in.
+
+    Keeping values above 1 leaves ``revolving_utilization_at_most_one``
+    failing, which is a **warning** in the contract's own classification and
+    is reported as such by :func:`assert_model_ready`. That is the contract
+    working as designed, not being bypassed: the rule exists to say "look at
+    these rows", and we have.
     """
 
     debt_ratio_cap: float = DEBT_RATIO_MAX_WITH_INCOME
@@ -402,7 +427,7 @@ def impute(frame: pd.DataFrame, fit: ImputationFit) -> pd.DataFrame:
 
 
 def assert_model_ready(frame: pd.DataFrame) -> None:
-    """Validate the contract columns against ``ModelInputSchema``. Pipeline step.
+    """Enforce ``ModelInputSchema`` on the contract columns. Pipeline step.
 
     This runs inside the pipeline, not only in a test, because a test proves
     the code was correct on the day it was written while this proves the data
@@ -410,14 +435,45 @@ def assert_model_ready(frame: pd.DataFrame) -> None:
     validated — ``income_missing`` is ours, not the contract's — which is why
     the frame is projected before validating rather than the schema loosened.
 
+    Enforcement is **severity-aware**, and that is the whole point rather than
+    a loophole. Pandera raises on any failed check, which flattens the policy
+    the contract went to the trouble of stating: three of its thirteen rules
+    are warnings, and ``revolving_utilization_at_most_one`` is one of them
+    *because the contract argues those rows may be genuine and must not be
+    thrown away*. Treating that as fatal here would mean the preprocessing
+    step overriding the contract's own classification — and, concretely, it
+    would force the utilisation cap down to 1.0 and flatten the 3,080 rows
+    that default at 39.61% (see ``docs/findings.md`` §6). So a blocker raises
+    and a warning is logged, exactly as the ingestion gate of stage 1 does
+    with a delivered batch.
+
     Args:
         frame: A cleaned, imputed split.
 
     Raises:
-        pandera.errors.SchemaErrors: The frame is not model-ready. Raised
+        pandera.errors.SchemaErrors: A blocker-level rule failed. Raised
             lazily, so the message lists every violation at once.
     """
-    ModelInputSchema.validate(frame[list(EXPECTED_COLUMNS)], lazy=True)
+    try:
+        ModelInputSchema.validate(frame[list(EXPECTED_COLUMNS)], lazy=True)
+    except pa.errors.SchemaErrors as errors:
+        blockers = blocking_failures(errors)
+        if not blockers.empty:
+            raise
+        warnings = errors.failure_cases.copy()
+        warnings["rule"] = [
+            resolve_rule(str(name)).value for name in warnings["check"]
+        ]
+        log.warning(
+            "preprocess.contract_warnings",
+            extra={
+                "schema": ModelInputSchema.__name__,
+                "rows": len(frame),
+                "warning_rules": sorted(set(warnings["rule"])),
+                "warning_rows": int(warnings["index"].nunique()),
+            },
+        )
+        return
     log.info(
         "preprocess.contract_validated",
         extra={"schema": ModelInputSchema.__name__, "rows": len(frame)},
