@@ -5,7 +5,7 @@
 
 .PHONY: help install download inspect lint test \
         validate-bad-batch validate-clean-batch \
-        prepare train recheck-correlation mlflow-ui simulate
+        prepare train recheck-correlation mlflow-ui simulate drift-reports
 
 # Default target: `make` with no arguments lists what exists.
 help:
@@ -20,6 +20,7 @@ help:
 	@echo "  make recheck-correlation - recalcula a correlação dos contadores e registra o achado"
 	@echo "  make mlflow-ui - abre a UI do MLflow (porta 5001)"
 	@echo "  make simulate  - gera seis meses de drift, pontua e escreve o resumo"
+	@echo "  make drift-reports - gera os relatórios de drift do Evidently"
 	@echo "  make lint      - roda o ruff (lint + formatação)"
 	@echo "  make test      - roda a suíte de testes (pytest)"
 
@@ -110,3 +111,8 @@ mlflow-ui:
 # `make prepare` (para o holdout) e de `make train` (para o alias champion).
 simulate:
 	uv run python scripts/simulate_production.py
+
+# Depende de `make simulate` (para os lotes) e de `make train` (para o campeão).
+# Regenera todos os HTML; só o conjunto curado fica versionado.
+drift-reports:
+	uv run python scripts/drift_reports.py
