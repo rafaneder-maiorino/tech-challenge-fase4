@@ -5,7 +5,7 @@
 
 .PHONY: help install download inspect lint test \
         validate-bad-batch validate-clean-batch \
-        prepare train recheck-correlation mlflow-ui
+        prepare train recheck-correlation mlflow-ui simulate
 
 # Default target: `make` with no arguments lists what exists.
 help:
@@ -19,6 +19,7 @@ help:
 	@echo "  make train     - treina os baselines e registra o campeão no MLflow"
 	@echo "  make recheck-correlation - recalcula a correlação dos contadores e registra o achado"
 	@echo "  make mlflow-ui - abre a UI do MLflow (porta 5001)"
+	@echo "  make simulate  - gera seis meses de drift, pontua e escreve o resumo"
 	@echo "  make lint      - roda o ruff (lint + formatação)"
 	@echo "  make test      - roda a suíte de testes (pytest)"
 
@@ -104,3 +105,8 @@ recheck-correlation:
 # em vez de falhar, então o MLflow parece subir e serve um 403 alheio.
 mlflow-ui:
 	uv run mlflow ui --backend-store-uri sqlite:///mlflow.db --port 5001
+
+# Determinístico: a mesma semente produz os mesmos lotes byte a byte. Depende de
+# `make prepare` (para o holdout) e de `make train` (para o alias champion).
+simulate:
+	uv run python scripts/simulate_production.py

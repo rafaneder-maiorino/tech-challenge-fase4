@@ -28,6 +28,13 @@
 # clona o repositório tem de conseguir lê-la sem antes baixar 3,3 MB do OpenML.
 !/reports/inspection.md
 
+# Exceção: o resumo da simulação é o artefato que registra os parâmetros
+# congelados e as quatro tabelas de resultado. Os lotes em si são regeneráveis
+# por `make simulate`; este resumo é o que se revisa sem reexecutar nada.
+!/reports/simulation/
+/reports/simulation/*
+!/reports/simulation/summary.md
+
 # Material de referência do curso: PDFs das aulas e o enunciado.
 # Nunca versionar — é conteúdo de terceiros.
 docs/_reference/
