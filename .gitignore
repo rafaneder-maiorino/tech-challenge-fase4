@@ -61,6 +61,9 @@
 # Nunca versionar — é conteúdo de terceiros.
 docs/_reference/
 
+# Binários baixados por alvo do Makefile (promtool), regeneráveis.
+/.tools/
+
 # Python
 __pycache__/
 *.py[cod]

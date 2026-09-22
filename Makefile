@@ -6,7 +6,7 @@
 .PHONY: help install download inspect lint test \
         validate-bad-batch validate-clean-batch \
         prepare train recheck-correlation mlflow-ui simulate drift-reports publish-reports aa-test mmd \
-        stack-up stack-down stack-logs monitor-replay monitor-all
+        stack-up stack-down stack-logs monitor-replay monitor-all alerts-test dashboards
 
 # Default target: `make` with no arguments lists what exists.
 help:
@@ -29,6 +29,7 @@ help:
 	@echo "  make stack-down- derruba a stack (mantém os volumes)"
 	@echo "  make monitor-all    - empurra as métricas de todos os lotes de uma vez"
 	@echo "  make monitor-replay - empurra mês a mês com pausa, para assistir ao painel"
+	@echo "  make alerts-test - valida e testa as regras de alerta (promtool)"
 	@echo "  make lint      - roda o ruff (lint + formatação)"
 	@echo "  make test      - roda a suíte de testes (pytest)"
 
@@ -178,3 +179,33 @@ monitor-all:
 # Mês a mês com pausa, para assistir ao painel virando de verde para vermelho.
 monitor-replay:
 	uv run python scripts/monitor_push.py --pause $(or $(PAUSE),20)
+
+# --------------------------------------------------------------------------
+# Regras de alerta: validadas e testadas com o promtool da MESMA versão da
+# imagem do Prometheus fixada no compose. Versões diferentes aceitam sintaxes
+# diferentes, e um teste que passa contra outra versão não prova nada.
+#
+# Sem Docker: o binário é baixado para .tools/ (ignorado pelo git), então roda
+# igual na máquina e no CI.
+# --------------------------------------------------------------------------
+PROMETHEUS_VERSION := 3.13.3
+PROMTOOL := .tools/promtool
+
+$(PROMTOOL):
+	@mkdir -p .tools
+	@ARCH=$$(uname -m | sed 's/x86_64/amd64/;s/aarch64/arm64/'); \
+	OS=$$(uname -s | tr 'A-Z' 'a-z'); \
+	echo "baixando promtool $(PROMETHEUS_VERSION) ($$OS-$$ARCH)"; \
+	curl -sfL "https://github.com/prometheus/prometheus/releases/download/v$(PROMETHEUS_VERSION)/prometheus-$(PROMETHEUS_VERSION).$$OS-$$ARCH.tar.gz" \
+	  | tar -xz -C /tmp; \
+	cp "/tmp/prometheus-$(PROMETHEUS_VERSION).$$OS-$$ARCH/promtool" $(PROMTOOL); \
+	chmod +x $(PROMTOOL)
+
+alerts-test: $(PROMTOOL)
+	$(PROMTOOL) check rules monitoring/rules/*.rules.yml
+	cd monitoring/rules && ../../$(PROMTOOL) test rules credit_monitor.rules.test.yml
+
+# Dashboards geradas, não escritas à mão: JSON de dashboard é escrito por
+# máquina e lido por ninguém.
+dashboards:
+	uv run python scripts/build_dashboards.py

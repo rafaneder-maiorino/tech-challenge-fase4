@@ -173,7 +173,9 @@ def main() -> None:
     gaps: dict[str, dict[int, float]] = {}
     alarms: dict[str, dict[int, bool]] = {}
 
-    def score_month(batch_id: str, scenario: str, directory: Path) -> str:
+    def score_month(
+        batch_id: str, scenario: str, directory: Path, labels_pending: bool = True
+    ) -> str:
         """Scoring-time metrics: available the day the batch is scored."""
         features = pd.read_parquet(directory / "features.parquet")
         outcome = run_scoring(
@@ -186,6 +188,7 @@ def main() -> None:
             gain_shares=gain_shares,
             champion_version=champion_version,
             gateway=args.gateway,
+            labels_pending=labels_pending,
         )
         pushed.append((scenario, batch_id, outcome.verdict_label))
         worst = (
@@ -277,7 +280,7 @@ def main() -> None:
     small = make_small_demo(
         args.data_dir, args.batches_dir, args.small_demo_rows, model
     )
-    score_month(SMALL_DEMO, "full", small)
+    score_month(SMALL_DEMO, "full", small, labels_pending=False)
     deliver_labels(SMALL_DEMO, "full", small, lag=0)
 
     features, labels, predictions = prepare_dirty(model)
@@ -306,16 +309,16 @@ def main() -> None:
 
     # --- the blind window -------------------------------------------------
     print()
-    print("JANELA CEGA POR CENARIO")
-    print("=======================")
+    print("LEAD TIME POR CENARIO (positivo = aviso antecipado, negativo = cego)")
+    print("=" * 68)
     print(
         f"atraso de rótulo = {lag} meses | "
         f"degradação real = gap <= {config.degradation_gap_threshold}"
     )
     print()
     print(
-        f"{'cenário':18} {'meses degradados':>18} {'1º degradado':>13} "
-        f"{'1º sinal':>9} {'meses cego':>11}"
+        f"{'cenário':18} {'1º degradado':>13} {'1º alarme drift':>16} "
+        f"{'1º sinal':>9} {'lead (meses)':>13}"
     )
     windows = []
     for scenario in SCENARIOS:
@@ -327,19 +330,27 @@ def main() -> None:
             config.degradation_gap_threshold,
         )
         windows.append(window)
-        degraded = ", ".join(str(month) for month in window.degraded_months) or "nenhum"
-        print(
-            f"{scenario:18} {degraded:>18} "
-            f"{window.first_degraded_month!s:>13} "
-            f"{window.first_signal_month!s:>9} {window.months_blind:>11}"
+        lead = window.lead_time_months
+        mark = (
+            "  aviso antecipado"
+            if lead is not None and lead > 0
+            else ("  CEGO" if lead is not None and lead < 0 else "")
         )
-    worst = max(windows, key=lambda w: w.months_blind)
-    if worst.months_blind:
+        rendered = f"{lead:+d}" if lead is not None else "n/a"
+        print(
+            f"{scenario:18} {window.first_degraded_month!s:>13} "
+            f"{window.first_drift_alarm_month!s:>16} "
+            f"{window.first_signal_month!s:>9} {rendered:>13}{mark}"
+        )
+    measured = [w for w in windows if w.lead_time_months is not None]
+    if measured:
+        worst = min(measured, key=lambda w: w.lead_time_months or 0)
         print()
         print(
-            f"Pior caso: `{worst.scenario}` fica {worst.months_blind} "
-            f"mês(es) degradando sem sinal de nenhum tipo "
-            f"(meses {', '.join(str(m) for m in worst.blind_months)})."
+            f"Pior caso: `{worst.scenario}` com lead de "
+            f"{worst.lead_time_months:+d} meses — degradando desde o mês "
+            f"{worst.first_degraded_month} e sem sinal nenhum até o "
+            f"{worst.first_signal_month}."
         )
 
     print()

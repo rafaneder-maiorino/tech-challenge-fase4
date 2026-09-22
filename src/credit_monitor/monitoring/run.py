@@ -128,6 +128,7 @@ def run_scoring(
     champion_version: str,
     gateway: str | None = m.DEFAULT_GATEWAY,
     log_dir: Path | None = None,
+    labels_pending: bool = True,
 ) -> ScoringOutcome:
     """The scoring-time monitoring run. Never sees a label.
 
@@ -142,6 +143,7 @@ def run_scoring(
         champion_version: Recorded as an MLflow tag.
         gateway: Pushgateway address, or ``None`` to skip pushing.
         log_dir: Where the JSONL goes; ``None`` uses the default.
+        labels_pending: Whether the outcome for this batch is still missing.
 
     Returns:
         The outcome, including the metrics that were pushed.
@@ -302,6 +304,10 @@ def run_scoring(
             1 for value in psi_values.values() if value >= config.psi_alert_threshold
         ),
         last_success_timestamp_seconds=time.time(),
+        labels_pending=labels_pending,
+        gain_share_by_feature={
+            feature: gain_shares.get(feature, 0.0) for feature in psi_values
+        },
         psi_by_feature=psi_values,
         psi_weighted_by_feature=weighted,
         violations=violations,
