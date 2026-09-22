@@ -24,9 +24,11 @@ from credit_monitor.constants import (
 )
 from credit_monitor.data.preprocess import MODEL_FEATURES, TARGET_COLUMN
 from credit_monitor.fairness.bands import (
+    MIN_CELL_FOR_COMPARISON,
     BandMetrics,
     assign_bands,
     band_metrics,
+    common_comparable_bands,
     fairness_criteria,
     wilson_interval,
 )
@@ -128,17 +130,34 @@ def main(argv: list[str] | None = None) -> int:
     measured = {
         name: measure(frame, model, threshold) for name, frame in populations.items()
     }
+    # Every cross-population comparison in docs/vies.md goes through the bands
+    # comparable in BOTH, named. Month 0 has three comparable bands and month 6
+    # has four; subtracting criteria computed over different sets would be
+    # subtracting answers to different questions.
+    drift_pair = ("full/month_00", "full/month_06")
+    common = common_comparable_bands(*(measured[name] for name in drift_pair))
+
     record: dict[str, object] = {
         "champion": champion,
         "operating_threshold": threshold,
         "threshold_source": "ks_threshold da partição de validação (etapa 1)",
+        "min_cell_for_comparison": MIN_CELL_FOR_COMPARISON,
         "populations": {
             name: {
                 "n": len(populations[name]),
                 "bands": _serialise(rows),
                 "criteria": asdict(fairness_criteria(rows)),
+                "bands_excluded": [row.band for row in rows if not row.comparable],
             }
             for name, rows in measured.items()
+        },
+        "drift_comparison": {
+            "populations": list(drift_pair),
+            "common_comparable_bands": list(common),
+            "criteria": {
+                name: asdict(fairness_criteria(measured[name], restrict_to=common))
+                for name in drift_pair
+            },
         },
     }
     (args.out_dir / "bands.json").write_text(
@@ -158,6 +177,8 @@ def main(argv: list[str] | None = None) -> int:
     for name, rows in measured.items():
         criteria = fairness_criteria(rows)
         print(f"\n{name}  (n={len(populations[name]):,})".replace(",", "."))
+        excluded = [row.band for row in rows if not row.comparable] or ["nenhuma"]
+        print(f"  fora do critério (< {MIN_CELL_FOR_COMPARISON} positivos): {excluded}")
         for row in rows:
             flag = "" if row.comparable else "  (célula pequena)"
             print(
@@ -166,6 +187,11 @@ def main(argv: list[str] | None = None) -> int:
                 f"gap={row.calibration_gap:+.4f}{flag}"
             )
         print(f"  critérios: {criteria.summary}")
+    print(f"\nmês 0 → mês 6 sobre as faixas comparáveis nos DOIS: {list(common)}")
+    for name in drift_pair:
+        summary = fairness_criteria(measured[name], restrict_to=common).summary
+        print(f"  {name:16} " + "  ".join(f"{k}={v:.4f}" for k, v in summary.items()))
+
     print(f"\nLimiar de operação: {threshold:.6f} (KS do campeão {champion})")
     print(f"Escrito em {args.out_dir}")
     return 0

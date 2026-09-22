@@ -209,20 +209,48 @@ class FairnessCriteria:
         }
 
 
-def fairness_criteria(rows: list[BandMetrics]) -> FairnessCriteria:
+def comparable_bands(rows: list[BandMetrics]) -> tuple[str, ...]:
+    """The bands whose positive cell clears the floor, in band order."""
+    return tuple(row.band for row in rows if row.comparable)
+
+
+def common_comparable_bands(*tables: list[BandMetrics]) -> tuple[str, ...]:
+    """Bands comparable in **every** table given, in band order.
+
+    Two populations rarely have the same comparable set: a band that clears the
+    floor in a 44,000-row holdout may not clear it in a 7,368-row batch. A
+    criterion computed over each population's own set and then subtracted is a
+    difference of two different questions. Comparisons across populations go
+    through this.
+    """
+    sets = [set(comparable_bands(table)) for table in tables]
+    if not sets:
+        return ()
+    shared = set.intersection(*sets)
+    return tuple(label for label, _, _ in AGE_BANDS if label in shared)
+
+
+def fairness_criteria(
+    rows: list[BandMetrics], restrict_to: tuple[str, ...] | None = None
+) -> FairnessCriteria:
     """Reduce the per-band table to the three named criteria.
 
     Only bands whose positive cell clears ``MIN_CELL_FOR_COMPARISON`` enter the
-    TPR spread. A band with eleven positives produces a TPR that swings on one
+    spreads. A band with eleven positives produces a TPR that swings on one
     row, and letting it set the maximum would be reporting noise as disparity.
 
     Args:
         rows: Output of :func:`band_metrics`.
+        restrict_to: Compare only these bands, on top of the size floor. Used to
+            hold the band set fixed across populations — see
+            :func:`common_comparable_bands`. ``None`` uses every comparable band.
 
     Returns:
         The criteria, with the bands that were actually compared.
     """
     comparable = [row for row in rows if row.comparable]
+    if restrict_to is not None:
+        comparable = [row for row in comparable if row.band in restrict_to]
     if not comparable:
         msg = "nenhuma faixa tem células grandes o suficiente para comparar"
         raise ValueError(msg)

@@ -19,6 +19,8 @@ from credit_monitor.fairness.bands import (
     assign_bands,
     band_metrics,
     band_of,
+    common_comparable_bands,
+    comparable_bands,
     fairness_criteria,
     wilson_interval,
 )
@@ -141,3 +143,46 @@ def test_a_threshold_above_every_score_approves_everyone() -> None:
     assert all(row.approval_rate == 1.0 for row in rows)
     assert all(row.tpr == 0.0 for row in rows)
     assert all(row.fpr == 0.0 for row in rows)
+
+
+def _table(band_sizes: dict[str, int], positive_rate: float) -> list:
+    ages = []
+    starts = {label: low for label, low, _ in AGE_BANDS}
+    for label, size in band_sizes.items():
+        ages.extend([starts[label]] * size)
+    target = np.zeros(len(ages), dtype="int8")
+    step = max(1, round(1 / positive_rate))
+    target[::step] = 1
+    scores = np.where(target == 1, 0.9, 0.1)
+    return band_metrics(pd.Series(assign_bands(pd.Series(ages))), target, scores, 0.5)
+
+
+def test_the_common_comparable_set_is_the_intersection_in_band_order() -> None:
+    # Month 0 has three comparable bands and month 6 has four. Subtracting a
+    # criterion computed over different sets subtracts answers to different
+    # questions — this is the guard that stops it.
+    small = _table({"26-35": 900, "36-45": 900, "46-55": 150}, 0.5)
+    large = _table({"26-35": 900, "36-45": 900, "46-55": 900}, 0.5)
+
+    assert common_comparable_bands(small, large) == ("26-35", "36-45")
+    assert comparable_bands(large) == ("26-35", "36-45", "46-55")
+
+
+def test_restricting_the_band_set_changes_the_criterion_it_reports() -> None:
+    # The whole point: a band left in or out moves the number, so the set has
+    # to be declared rather than implied.
+    ages = [30] * 2000 + [40] * 2000 + [50] * 2000
+    target = np.zeros(6000, dtype="int8")
+    target[:600] = 1  # 26-35 defaults at 30%
+    target[2000:2200] = 1  # 36-45 at 10%
+    target[4000:4200] = 1  # 46-55 at 10%
+    rows = band_metrics(
+        pd.Series(assign_bands(pd.Series(ages))), target, np.full(6000, 0.10), 0.5
+    )
+
+    everything = fairness_criteria(rows)
+    without_the_outlier = fairness_criteria(rows, restrict_to=("36-45", "46-55"))
+
+    assert everything.base_rate_difference == pytest.approx(0.20)
+    assert without_the_outlier.base_rate_difference == pytest.approx(0.0)
+    assert without_the_outlier.bands_compared == ("36-45", "46-55")

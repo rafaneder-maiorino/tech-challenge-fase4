@@ -2,6 +2,7 @@
   "champion": "xgboost",
   "operating_threshold": 0.0803571417927742,
   "threshold_source": "ks_threshold da partição de validação (etapa 1)",
+  "min_cell_for_comparison": 100,
   "populations": {
     "holdout": {
       "n": 44208,
@@ -207,7 +208,10 @@
           "56-65",
           "66+"
         ]
-      }
+      },
+      "bands_excluded": [
+        "18-25"
+      ]
     },
     "full/month_00": {
       "n": 7368,
@@ -411,7 +415,12 @@
           "36-45",
           "46-55"
         ]
-      }
+      },
+      "bands_excluded": [
+        "18-25",
+        "56-65",
+        "66+"
+      ]
     },
     "full/month_06": {
       "n": 7368,
@@ -616,7 +625,11 @@
           "46-55",
           "56-65"
         ]
-      }
+      },
+      "bands_excluded": [
+        "18-25",
+        "66+"
+      ]
     },
     "composition_only/month_06": {
       "n": 7368,
@@ -821,7 +834,11 @@
           "46-55",
           "56-65"
         ]
-      }
+      },
+      "bands_excluded": [
+        "18-25",
+        "66+"
+      ]
     },
     "stress_only/month_06": {
       "n": 7368,
@@ -1025,6 +1042,49 @@
           "36-45",
           "46-55",
           "56-65"
+        ]
+      },
+      "bands_excluded": [
+        "18-25",
+        "66+"
+      ]
+    }
+  },
+  "drift_comparison": {
+    "populations": [
+      "full/month_00",
+      "full/month_06"
+    ],
+    "common_comparable_bands": [
+      "26-35",
+      "36-45",
+      "46-55"
+    ],
+    "criteria": {
+      "full/month_00": {
+        "demographic_parity_difference": 0.15538364404008154,
+        "tpr_difference": 0.09169859514687095,
+        "fpr_difference": 0.14736249423384798,
+        "equalised_odds_difference": 0.14736249423384798,
+        "calibration_difference": 0.0035048892299835155,
+        "base_rate_difference": 0.03310939704094851,
+        "bands_compared": [
+          "26-35",
+          "36-45",
+          "46-55"
+        ]
+      },
+      "full/month_06": {
+        "demographic_parity_difference": 0.0752645555447839,
+        "tpr_difference": 0.048304093567251405,
+        "fpr_difference": 0.08385435481331216,
+        "equalised_odds_difference": 0.08385435481331216,
+        "calibration_difference": 0.018680326052106483,
+        "base_rate_difference": 0.013316073684356666,
+        "bands_compared": [
+          "26-35",
+          "36-45",
+          "46-55"
         ]
       }
     }
