@@ -163,12 +163,20 @@ crédito por direito próprio.
 O limiar de operação foi **escolhido hoje** (0,0804, o KS do campeão ajustado na
 validação), porque até a etapa 3 nenhuma métrica do projeto exigia um corte.
 
-| critério | holdout | mês 6 do `full` |
-|---|---|---|
-| paridade demográfica | 0,3616 | 0,2037 |
-| chances equalizadas | 0,3259 | 0,2139 |
-| **calibração por grupo** | **0,0159** | **0,0264** |
-| *(a causa)* taxa-base entre faixas | 0,0827 | 0,0407 |
+Todo critério é uma **diferença entre faixas**, então só significa alguma coisa
+sobre um conjunto de faixas declarado. A convenção, usada sem exceção: calcula-se
+apenas sobre faixas com **100 ou mais inadimplentes**, as excluídas são sempre
+**nomeadas**, e comparações entre populações usam a **interseção** dos conjuntos
+comparáveis.
+
+**Holdout** *(comparadas: 26-35 a 66+ · excluída: 18-25, com 80 inadimplentes)*:
+
+| critério | medido |
+|---|---|
+| paridade demográfica | 0,3616 |
+| chances equalizadas | 0,3259 |
+| **calibração por grupo** | **0,0159** |
+| *(a causa)* taxa-base entre faixas | 0,0827 |
 
 Os três **não podem valer ao mesmo tempo** com taxas-base diferentes — e elas
 diferem quatro vezes, de 10,89% na faixa 26-35 a 2,62% na 66+. O sistema
@@ -176,21 +184,40 @@ prioriza **calibração por grupo**, e a razão é o Art. 20 §1: o critério
 apresentado ao titular é um número, e ele precisa significar a mesma coisa
 qualquer que seja a idade de quem o recebe.
 
-Dois resultados que contrariam a expectativa:
+**Mês 0 contra mês 6** *(sobre as faixas comparáveis nos dois: 26-35, 36-45,
+46-55)*:
 
-1. **A faixa mais prejudicada pelo drift é a mais velha, não a mais jovem.** O
-   mecanismo de composição empurra a carteira para os jovens, e quem sai pior é
-   quem ficou: 66+ com gap de **-0,0730** no mês 6 (IC 95% [-0,1112, -0,0403]),
-   quase três vezes o da faixa 18-25.
-2. **O mecanismo que move a demografia não é o que causa a injustiça.** A
+| critério | mês 0 | mês 6 | |
+|---|---|---|---|
+| paridade demográfica | 0,1554 | 0,0753 | **melhora** |
+| chances equalizadas | 0,1474 | 0,0839 | **melhora** |
+| **calibração por grupo** | 0,0035 | **0,0187** | **piora 5,3×** |
+| taxa-base entre faixas | 0,0331 | 0,0133 | comprime |
+
+Três resultados que contrariam a expectativa:
+
+1. **O drift não piora todos os critérios.** Ele *melhora* os dois que
+   acompanham a diferença de taxa-base — porque o estresse empurra o risco de
+   todas as faixas para cima e **comprime** as taxas-base — e piora justamente o
+   que o sistema escolheu proteger.
+2. **A faixa mais prejudicada é a mais velha, não a mais jovem** (achado §14). A
+   composição empurra a carteira para os jovens, e quem sai pior é quem ficou:
+   66+ com gap de **-0,0730** (IC 95% [-0,1112, -0,0403]). O peso de amostragem
+   penaliza a idade da faixa inteira mas segue discriminando **dentro** dela, e
+   quem sobrevive à seleção são os mais alavancados: utilização mediana **8,2×**
+   maior e inadimplência **5,7×** maior que a faixa que o modelo aprendeu.
+   **Composição não muda só quem entra na carteira — muda quem cada faixa passa
+   a representar**, e um relatório que acompanhasse só o tamanho das faixas teria
+   apontado o grupo errado.
+3. **O mecanismo que move a demografia não é o que causa a injustiça.** A
    ablação separa: `composition_only` estraga a calibração de **uma** faixa;
    `stress_only` estraga a de **todas as seis**. E o painel de drift enxerga o
    primeiro (PSI 0,93) e é cego ao segundo (PSI 0,0082).
 
-Daí uma regra de método: **justiça de grupo se reporta com o nível por faixa, não
-só com a diferença entre faixas.** O braço com doze vezes mais dano agregado de
-calibração tem o *menor* spread entre faixas — porque ninguém escapou, e
-diferença é cega para falha de modo comum.
+Daí a regra do achado §15: **justiça de grupo se reporta com o nível por faixa,
+nunca só com a diferença entre faixas.** O braço com **doze vezes** mais dano
+agregado de calibração tem o *menor* spread (0,0198 contra 0,0258) — porque
+ninguém escapou, e diferença é cega para falha de modo comum.
 
 | | |
 |---|---|
@@ -229,10 +256,14 @@ real; as magnitudes são nossas.
 
 Estrutura padrão, e carrega o que costuma ser escondido:
 
-- **a margem do campeão contra o piso de ruído.** +0,0070 de AUC contra ±0,0070
-  de desvio em cinco sementes: **limítrofe** — uma sexta semente poderia inverter
-  a ordem. No KS a vantagem é mais clara (+0,0185), com a ressalva de que o ruído
-  do KS não foi medido;
+- **a margem do campeão contra os dois pisos de ruído**, ambos medidos em cinco
+  sementes (`make seed-noise`). Em **nível**, o KS é o dobro de ruidoso que o AUC
+  (desvio 0,0133 contra 0,0063). Mas a comparação entre modelos é **pareada** —
+  os dois veem a mesma partição —, e o desvio do **delta** é 0,0015 no AUC e
+  0,0027 no KS, com o campeão vencendo **5 de 5** nas duas. A margem de AUC é
+  **4,7 desvios**. A primeira versão do card chamava isso de "limítrofe"
+  comparando uma diferença pareada contra um desvio não pareado: a correção está
+  registrada no próprio card;
 - **calibração como argumento de justiça.** A reponderação infla as
   probabilidades ~14x: o ponto de corte do KS fica em **0,4787** no modelo
   reponderado e em **0,0804** no calibrado — a mesma decisão, anunciada como 48%

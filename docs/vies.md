@@ -137,6 +137,23 @@ nas comparações do §6.
 
 ## 6. Os três critérios, pelo nome
 
+### A convenção, declarada uma vez e usada em todo o documento
+
+Todo critério deste documento é uma **diferença entre faixas**, e uma diferença
+só significa alguma coisa sobre um conjunto de faixas declarado. A regra, sem
+exceção:
+
+1. **O critério é sempre calculado apenas sobre as faixas comparáveis** — as que
+   têm 100 ou mais inadimplentes.
+2. **As faixas excluídas são sempre nomeadas** ao lado do número.
+3. **Comparações entre populações usam a interseção** dos conjuntos comparáveis
+   das duas, porque o conjunto comparável muda com o tamanho da amostra.
+
+A regra 3 não é zelo. O holdout tem cinco faixas comparáveis, o mês 0 tem três e
+o mês 6 tem quatro; subtrair um critério calculado sobre conjuntos diferentes é
+subtrair respostas a perguntas diferentes. O §7 mostra o quanto isso muda a
+conclusão.
+
 | critério | definição | **medido (holdout)** |
 |---|---|---|
 | **paridade demográfica** | maior menos menor taxa de aprovação | **0,3616** |
@@ -144,7 +161,13 @@ nas comparações do §6.
 | **calibração por grupo** | maior menos menor gap de calibração | **0,0159** |
 | *(a causa)* | maior menos menor taxa-base observada | **0,0827** |
 
-Faixas comparadas: 26-35, 36-45, 46-55, 56-65, 66+. A 18-25 fica de fora.
+> **Faixas comparadas: 26-35, 36-45, 46-55, 56-65, 66+.**
+> **Excluída: 18-25** (80 inadimplentes, abaixo do piso de 100).
+
+O **0,0159** sai de +0,0117 na faixa 36-45 menos -0,0042 na 66+. Incluindo a
+18-25, cujo gap é +0,0079, o número **não mudaria** — ela cai dentro do
+intervalo das outras. É coincidência favorável, não motivo para relaxar a regra:
+no mês 6 a faixa excluída é a que define o extremo.
 
 ![Chances equalizadas por faixa](../reports/fairness/odds_by_band.png)
 
@@ -226,19 +249,46 @@ propósito. Se houvesse disparidade para aparecer, apareceria aqui.
 A carteira rejuvenesce exatamente como desenhado: a 66+ perde dois terços da sua
 presença e a 18-25 mais que dobra.
 
-### E os três critérios se movem
+### E os critérios se movem — mas não todos na mesma direção
+
+Aqui a convenção do §6 decide a resposta, e vale mostrar as duas versões.
+
+**Cada mês sobre o seu próprio conjunto comparável** (a leitura ingênua):
+
+| critério | mês 0 *(3 faixas)* | mês 6 *(4 faixas)* |
+|---|---|---|
+| paridade demográfica | 0,1554 | 0,2037 |
+| chances equalizadas | 0,1474 | 0,2139 |
+| calibração por grupo | 0,0035 | 0,0264 |
+
+> mês 0 exclui 18-25, 56-65 e 66+ · mês 6 exclui 18-25 e 66+
+
+Esses dois pares **não são comparáveis**. O mês 6 ganhou a faixa 56-65 no
+conjunto, e ela está longe das outras; boa parte do aumento é a faixa nova
+entrando na conta, não o modelo piorando.
+
+**Sobre as faixas comparáveis nos dois meses — 26-35, 36-45, 46-55** (a leitura
+correta):
 
 | critério | mês 0 | mês 6 | |
 |---|---|---|---|
-| paridade demográfica | 0,1554 | **0,2037** | +31% |
-| chances equalizadas | 0,1474 | **0,2139** | +45% |
-| **calibração por grupo** | **0,0035** | **0,0264** | **7,5×** |
-| taxa-base entre faixas | 0,0331 | 0,0407 | +23% |
+| paridade demográfica | 0,1554 | **0,0753** | **melhora 2,1×** |
+| chances equalizadas | 0,1474 | **0,0839** | **melhora 1,8×** |
+| **calibração por grupo** | **0,0035** | **0,0187** | **piora 5,3×** |
+| taxa-base entre faixas | 0,0331 | **0,0133** | **comprime 2,5×** |
 
-**Sim: o drift piora a justiça, e piora mais no critério que este sistema
-escolheu proteger.** A calibração por grupo, que era 0,0035 no mês 0 — ruído —,
-vai a 0,0264, quase oito vezes. A aprovação global cai de 76% para 33,5%, porque
-o limiar é fixo e o risco subiu.
+**A resposta honesta é mais interessante que "sim, piora".** O drift **melhora**
+dois dos três critérios e **piora** o terceiro — o que este sistema escolheu
+proteger.
+
+E o motivo está na última linha. O estresse empurra o risco de **todas** as
+faixas para cima, e com isso **comprime as taxas-base** entre elas: de 0,0331
+para 0,0133. Taxas-base mais parecidas produzem aprovações mais parecidas, e
+paridade demográfica "melhora" — enquanto o modelo piora para todo mundo. É a
+mesma armadilha do §8, e está registrada como achado §15.
+
+A aprovação global cai de 76% para 33,5%, porque o limiar é fixo e o risco
+subiu.
 
 ### Qual faixa é a mais prejudicada: a mais velha, não a mais jovem
 
@@ -254,11 +304,56 @@ o limiar é fixo e o risco subiu.
 A faixa **66+** recebe o pior gap do painel: previsto 10,5% contra observado
 17,8%, **7,3 pontos de subestimação**. É quase três vezes o da 18-25.
 
-Isso contraria a expectativa óbvia. O mecanismo empurra a carteira para os
-jovens, e quem sai pior é quem ficou: **as 445 pessoas da faixa 66+ que restaram
-no mês 6 não são uma amostra da faixa 66+ original.** São o que sobrou depois de
-a composição drenar dois terços dela, e o modelo foi calibrado na população
-inteira.
+Isso contraria a expectativa óbvia — e a expectativa era minha, estava escrita, e
+estava errada. O mecanismo empurra a carteira para os jovens; logo os jovens
+seriam os prejudicados. Não são.
+
+#### O mecanismo: a faixa encolhe **e** troca de conteúdo
+
+O peso de amostragem da composição não olha só para a idade:
+
+```
+w ∝ exp( s · [ b_util·r(util) + b_age·(−r(age)) + b_d30·r(30-59) + … ] )
+```
+
+O termo `−r(age)` penaliza **toda** a faixa 66+ por igual — é o que a faz
+encolher. Os demais termos continuam discriminando **dentro** dela, e favorecem
+quem tem utilização alta e atraso registrado. Os poucos 66+ que sobrevivem à
+seleção são, portanto, **os mais alavancados e mais inadimplentes da sua
+faixa** — não uma amostra dela.
+
+Medido dentro da faixa 66+, comparando o que o modelo aprendeu com o que ele
+passou a receber:
+
+| | holdout (treino) | `composition_only` mês 6 | |
+|---|---|---|---|
+| n | 8.381 | 426 | 0,05× |
+| **utilização mediana** | **0,0469** | **0,3858** | **8,2×** |
+| com utilização > 0,5 | 12,25% | 46,24% | 3,8× |
+| com algum atraso registrado | 10,55% | 44,84% | 4,3× |
+| média do contador 90d+ | 0,0286 | 0,2793 | 9,8× |
+| **inadimplência observada** | **2,62%** | **15,02%** | **5,7×** |
+
+**O modelo aprendeu "66+" como um grupo de 2,62% de risco e passou a receber um
+subgrupo que inadimple a 15,02%** — 17,75% no cenário `full`, com os dois
+mecanismos. O rótulo da faixa é o mesmo; as pessoas não são.
+
+#### A consequência para relatórios de viés
+
+**Drift de composição não muda apenas quem entra na carteira: muda quem cada
+faixa passa a representar.** A categoria permanece e o que ela nomeia muda por
+baixo.
+
+Um relatório de viés que acompanhasse só o **tamanho** das faixas veria a 18-25
+dobrar e a 66+ encolher, e concluiria que o grupo afetado é o que cresce. **Teria
+errado o grupo** — que é exatamente o erro que este documento cometeu antes de
+medir.
+
+O acompanhamento correto exige as features **dentro** de cada faixa, o que é a
+mesma coisa que dizer que o PSI precisa ser calculado **por grupo** e não só no
+agregado. Este projeto não faz isso: o PSI é medido na carteira inteira. Fica
+como limitação (§9) e como o próximo passo óbvio da instrumentação. Registrado
+como achado §14.
 
 E aqui está o cuidado que o §3 preparou: a faixa 66+ tem **79 inadimplentes** no
 mês 6, abaixo do piso de 100, então ela **não entra** no cálculo do critério
@@ -351,7 +446,10 @@ jeito que nenhum número da tabela denuncia sozinho.
    não.
 6. **Nenhuma mitigação foi aplicada.** Não há reponderação por grupo, limiar por
    faixa nem restrição de justiça no treino. Este documento mede; não corrige.
-7. **Os braços da ablação são nossos.** O que o §8 identifica vale dentro do
+7. **O PSI é medido na carteira inteira, não por faixa.** É por isso que a
+   mudança de composição *dentro* da faixa 66+ (§7) não apareceria em nenhum
+   painel deste projeto. Próximo passo óbvio da instrumentação.
+8. **Os braços da ablação são nossos.** O que o §8 identifica vale dentro do
    mundo simulado. Ver o limite do que se pode afirmar em `docs/causalidade.md`.
 
 ## 10. Reproduzir

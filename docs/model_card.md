@@ -81,19 +81,44 @@ calibração isotônica**. Os dois passos são deliberados e a §5 explica por q
 
 ## 4. Métricas
 
-### O piso de ruído vem primeiro
+### O piso de ruído vem primeiro — nas duas métricas
 
 Um delta reportado sem o ruído do procedimento que o produziu é um delta sem
-interpretação. Cinco sementes, mesmo dado, variando só a partição interna:
+interpretação. Cinco sementes, mesmo dado, variando só a partição interna
+(`make seed-noise`, `reports/seed_noise.json`):
 
-| | AUC-ROC |
-|---|---|
-| média das cinco sementes | 0,8616 |
-| **desvio-padrão** | **0,0063** |
-| amplitude | 0,0145 |
+| campeão (xgboost, calibrado) | média | **desvio** | amplitude |
+|---|---|---|---|
+| AUC-ROC | 0,8616 | **0,0063** | 0,0145 |
+| KS | 0,5720 | **0,0133** | 0,0332 |
 
-**Piso de ruído: ±0,007 de AUC.** Qualquer diferença menor que isso é a
-partição, não o modelo.
+**O KS é duas vezes mais ruidoso que o AUC em nível absoluto.** Isso responde à
+pergunta que a etapa 1 deixou aberta, e responde contra a intuição de quem
+esperava o contrário.
+
+### E o piso certo para comparar dois modelos não é esse
+
+O desvio acima é do **nível** de cada modelo. A pergunta "o campeão é melhor" é
+sobre a **diferença**, e os dois modelos veem **a mesma partição** em cada
+semente — o ruído da partição é comum aos dois e cancela na subtração:
+
+| delta (xgboost menos logística) | média | **desvio** | vitórias |
+|---|---|---|---|
+| AUC-ROC | **+0,0071** | **0,0015** | **5 de 5** |
+| KS | **+0,0190** | **0,0027** | **5 de 5** |
+
+Valores do delta de AUC, semente a semente: +0,0070 +0,0078 +0,0084 +0,0076
++0,0046. Nunca negativo, nunca perto de zero.
+
+> **Correção.** A primeira versão deste card dizia que a vantagem do campeão era
+> **limítrofe** — "+0,0070 contra um piso de ruído de ±0,0070, uma sexta semente
+> poderia inverter a ordem". Isso estava **errado**, e errado pelo mesmo motivo
+> que o achado §15: eu comparei uma **diferença pareada** contra um **desvio não
+> pareado**. A partição varia, mas varia igual para os dois modelos. O piso
+> correto é 0,0015, não 0,0063, e a margem de AUC é **4,7 desvios**, não um.
+
+**A vantagem do campeão não é limítrofe.** É +0,0071 de AUC com desvio de
+0,0015 e 5 vitórias em 5, e +0,0190 de KS com desvio de 0,0027 e 5 em 5.
 
 ### Os dois candidatos (validação, calibrados)
 
@@ -103,23 +128,21 @@ partição, não o modelo.
 | logistic_regression | 0,8491 | 0,5451 | 0,0504 |
 | **margem do campeão** | **+0,0070** | **+0,0185** | +0,0005 |
 
-**Leitura honesta da margem:**
+**Leitura da margem, contra o piso pareado:**
 
-- **No AUC, a vantagem é limítrofe.** +0,0070 contra um piso de ruído de
-  ±0,0070 — exatamente um desvio. **Uma sexta semente poderia inverter a
-  ordem.** O campeão foi escolhido por AUC, e o critério de escolha não
-  distingue os dois com confiança.
-- **No KS, a vantagem é mais clara.** +0,0185, cerca de **2,6 vezes** o desvio
-  do AUC. Ressalva necessária: o estudo de cinco sementes mediu o ruído do
-  **AUC**, não o do KS, então esse "2,6 vezes" usa o piso da métrica errada
-  como régua. É indicativo, não medido.
-- **No Brier, é empate.** +0,0005. Depois de calibrados, os dois entregam
-  probabilidades igualmente boas.
+- **AUC: +0,0070 nesta semente, +0,0071 na média de cinco, desvio 0,0015.**
+  Cerca de **4,7 desvios**, e o campeão vence em **5 de 5**. Sólido.
+- **KS: +0,0185 nesta semente, +0,0190 na média, desvio 0,0027.** Cerca de
+  **7 desvios**, **5 de 5**. Ainda mais sólido — a separação é onde a diferença
+  entre as duas famílias realmente aparece.
+- **Brier: +0,0005. Empate.** Depois de calibrados, os dois entregam
+  probabilidades igualmente boas, e é isso que importa para o titular.
 
-A conclusão que se sustenta: **o XGBoost está à frente na separação (KS) e
-empatado dentro do ruído no resto.** Um projeto que precisasse de um modelo
-mais simples não perderia quase nada trocando pela logística, e isso está dito
-aqui em vez de escondido atrás de um "o XGBoost venceu".
+A conclusão que se sustenta: **o XGBoost ordena melhor de forma consistente, e
+empata na qualidade da probabilidade.** Um projeto que precisasse de um modelo
+mais simples e auditável perderia ordenação e **não** perderia calibração
+trocando pela logística — o que é uma troca defensável e está dita aqui em vez
+de escondida atrás de um "o XGBoost venceu".
 
 ### Justiça por faixa etária (holdout, limiar 0,0804)
 
@@ -181,10 +204,15 @@ de AUC** e leva o Brier de 0,1374 a **0,0499**. O modelo com o alias `champion`
 
 ## 6. Limitações
 
-1. **A vantagem do campeão no AUC é limítrofe.** +0,0070 contra um piso de ruído
-   de ±0,0070 (cinco sementes, desvio 0,0063). A escolha do campeão não é
-   estatisticamente robusta na métrica que a decidiu. No KS a margem é mais
-   confortável (+0,0185), mas o ruído do KS **não foi medido**.
+1. **A vantagem do campeão é sólida, e a versão anterior desta limitação estava
+   errada.** Os dois pisos de ruído foram medidos (cinco sementes): em **nível**,
+   desvio de **0,0063** no AUC e **0,0133** no KS — o KS é o dobro de ruidoso. Mas
+   a comparação entre modelos é **pareada** (mesma partição para os dois em cada
+   semente), e o desvio do **delta** é **0,0015** no AUC e **0,0027** no KS, com
+   o campeão vencendo em **5 de 5** nas duas métricas. A margem de AUC é 4,7
+   desvios, não um. O que continua verdadeiro é a ressalva de escopo: as cinco
+   sementes variam a partição **interna** do `reference`; a divisão
+   reference/holdout é fixa, então este piso **não** cobre o ruído dessa divisão.
 
 2. **As 269 linhas de sentinela estão fora do treino, e são a população que mais
    precisa de decisão.** Os códigos 96/98 nos contadores de atraso marcam 269

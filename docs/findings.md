@@ -1218,3 +1218,159 @@ justamente o interessante. Um limiar **não calibrado** parece conservador e é
 cego — o -0,015 fazia o monitor parecer melhor do que é, e a correção piorou o
 número reportado. Métrica que só melhora quando corrigida é métrica que ninguém
 está corrigindo de verdade.
+
+---
+
+## 14. A composição não muda só quem entra na carteira — muda quem cada faixa representa
+
+**Etapa 4 · 2026-09-22 · `scripts/bias_analysis.py` · `docs/vies.md` §7**
+
+### A previsão, e por que ela era razoável
+
+O mecanismo de composição desloca a carteira **para baixo na idade**: o peso de
+amostragem tem um termo `b_age·(−r(age))`, que favorece explicitamente os mais
+jovens. A faixa 18-25 mais que dobra de presença (1,8% → 4,0%) e a 66+ perde dois
+terços (19,4% → 6,0%).
+
+A previsão que se faz com isso é imediata: **a faixa mais jovem é a prejudicada.**
+Ela é a que cresce, é a que tem a maior taxa-base, e é a que a literatura de
+crédito aponta como vulnerável.
+
+**A previsão estava errada.**
+
+| faixa | gap de calibração no mês 6 | IC 95% |
+|---|---|---|
+| 18-25 | -0,0254 | [-0,0761 – +0,0181] |
+| 26-35 | -0,0435 | [-0,0647 – -0,0233] |
+| 46-55 | -0,0395 | [-0,0600 – -0,0199] |
+| 56-65 | -0,0512 | [-0,0770 – -0,0273] |
+| **66+** | **-0,0730** | **[-0,1112 – -0,0403]** |
+
+A faixa **mais velha** leva o pior gap do painel, quase três vezes o da mais
+jovem — e é justamente a que **encolheu**.
+
+### O mecanismo: seleção dentro da faixa
+
+O peso de amostragem não olha só para a idade. Ele é
+
+```
+w ∝ exp( s · [ b_util·r(util) + b_age·(−r(age)) + b_d30·r(30-59) + … ] )
+```
+
+O termo de idade penaliza **toda** a faixa 66+ por igual. Os outros termos
+continuam discriminando **dentro** dela. O resultado é que os poucos 66+ que
+sobrevivem à seleção são **os mais alavancados e mais inadimplentes da sua
+faixa** — não uma amostra dela.
+
+Medido, dentro da faixa 66+:
+
+| | holdout (o que o modelo aprendeu) | `composition_only` mês 6 | |
+|---|---|---|---|
+| n | 8.381 | 426 | 0,05× |
+| **utilização mediana** | **0,0469** | **0,3858** | **8,2×** |
+| proporção com utilização > 0,5 | 12,25% | 46,24% | 3,8× |
+| proporção com algum atraso | 10,55% | 44,84% | 4,3× |
+| média do contador 90d+ | 0,0286 | 0,2793 | 9,8× |
+| **inadimplência observada** | **2,62%** | **15,02%** | **5,7×** |
+
+**O modelo aprendeu "66+" como um grupo de 2,62% de risco e passou a receber um
+subgrupo que inadimple a 15,02%** — 17,75% no cenário completo. O rótulo da
+faixa é o mesmo; as pessoas não são.
+
+### A consequência para relatórios de viés
+
+Um relatório de viés que acompanhasse apenas o **tamanho** das faixas veria a
+18-25 dobrar, a 66+ encolher, e concluiria que o grupo afetado é o que cresce.
+Teria errado o grupo.
+
+**Drift de composição é uma mudança de distribuição condicional dentro de cada
+grupo, não só de proporção entre grupos.** A faixa é uma categoria que
+permanece; o que ela nomeia muda por baixo. Acompanhar a composição etária de
+uma carteira é insuficiente — é preciso acompanhar as features **dentro** de
+cada faixa, que é a mesma coisa que dizer que o PSI precisa ser calculado por
+grupo e não só no agregado.
+
+Este projeto **não** faz isso: o PSI é medido na carteira inteira. Fica como
+limitação e como o próximo passo óbvio da instrumentação.
+
+---
+
+## 15. A métrica de justiça que fica melhor quando o dano piora
+
+**Etapa 4 · 2026-09-22 · `docs/vies.md` §8**
+
+### Os dois números lado a lado
+
+Mesma medição, mesmo mês, mesma semente, nos dois braços da ablação:
+
+| braço | **spread** da calibração entre faixas | **gap agregado** |
+|---|---|---|
+| `composition_only` | **0,0258** | **-0,0028** |
+| `stress_only` | **0,0198** | **-0,0337** |
+
+**O braço com doze vezes mais dano de calibração tem a menor disparidade entre
+faixas.** Uma tabela de justiça que trouxesse só a coluna da esquerda
+concluiria, com números corretos, que `stress_only` é o cenário **mais justo**
+dos dois.
+
+### Por quê
+
+Porque toda métrica de justiça de grupo desta família é uma **diferença**, e uma
+diferença não enxerga o que é comum a todos os termos.
+
+- `composition_only` mantém cinco das seis faixas calibradas (IC contendo zero)
+  e quebra **uma** — a 66+, que ele esvaziou (achado §14). Um outlier num campo
+  de zeros produz um spread grande.
+- `stress_only` quebra **todas as seis**, todas na mesma direção e em magnitude
+  parecida (-0,0207 a -0,0603, todos com IC fora do zero). Todo mundo piorou
+  junto, então a diferença entre eles quase não se move.
+
+É falha de **modo comum**, e é exatamente o tipo de falha para o qual um
+estimador de contraste é cego por construção. O mesmo fenômeno tem outros nomes
+noutras áreas — um viés que afeta todos os braços de um experimento não aparece
+na comparação entre braços.
+
+### A regra
+
+> **Justiça de grupo se reporta com o nível por faixa, nunca só com a diferença
+> entre faixas.**
+
+Concretamente, o relatório mínimo é: o gap de cada faixa, com intervalo, **e**
+o gap agregado — e só então o spread. `docs/vies.md` §7 lista os seis gaps antes
+de listar o spread, e essa ordem é o achado, não diagramação.
+
+Há uma segunda razão para a mesma regra, encontrada no mesmo dia. O spread só
+tem sentido sobre um **conjunto fixo de faixas**, e o conjunto comparável muda
+com a população: o mês 0 tem três faixas acima do piso de 100 positivos e o mês
+6 tem quatro. Comparar 0,0035 com 0,0264 era comparar respostas a perguntas
+diferentes. Sobre as faixas comparáveis nos **dois** meses, os números corretos
+são:
+
+| critério | mês 0 | mês 6 | |
+|---|---|---|---|
+| paridade demográfica | 0,1554 | **0,0753** | **melhora** |
+| chances equalizadas | 0,1474 | **0,0839** | **melhora** |
+| **calibração por grupo** | 0,0035 | **0,0187** | **piora 5,3×** |
+| taxa-base entre faixas | 0,0331 | **0,0133** | comprime |
+
+E a leitura muda de forma: **o drift não piora todos os critérios.** Ele
+*melhora* os dois que acompanham a diferença de taxa-base, porque o estresse
+empurra o risco de todas as faixas para cima e **comprime** as taxas-base
+(0,0331 → 0,0133). Com taxas-base mais parecidas, aprovações ficam mais
+parecidas, e paridade demográfica "melhora" enquanto o modelo piora para todo
+mundo.
+
+Duas armadilhas, a mesma forma: **uma diferença entre grupos pode melhorar
+precisamente porque a situação de todos os grupos piorou.**
+
+### O que aprendi disso
+
+É o mesmo padrão dos achados §5 e §11, num terceiro domínio. O AUC é uma métrica
+correta que não vê descalibração. O KS sem correção é um teste correto que
+acende 21,5% dos lotes limpos. O spread de calibração é uma métrica de justiça
+correta que melhora quando o dano se generaliza.
+
+Nenhuma das três está errada. Cada uma responde exatamente à pergunta que lhe
+foi feita, e em cada caso a pergunta não era a que importava. **A falha recorrente
+deste projeto não é escolher métricas ruins — é ler métricas boas como se
+respondessem uma pergunta mais ampla do que a delas.**
