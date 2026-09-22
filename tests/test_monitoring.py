@@ -523,4 +523,84 @@ def test_a_longer_lag_widens_the_blind_window() -> None:
 
 def test_the_label_lag_comes_from_the_config(config: MonitoringConfig) -> None:
     assert config.label_lag_months == 2
-    assert config.degradation_gap_threshold == -0.015
+    # Calibrated on day 10; the provisional -0.015 had a measured false-alarm
+    # rate of 0.0% — safe and blind, 6.5 null standard deviations out.
+    assert config.degradation_gap_threshold == -0.0056
+
+
+def test_the_lead_time_is_signed_and_positive_means_early_warning() -> None:
+    # The unsigned count was clipped at zero and said "0 months blind" both for
+    # a monitor that warns on time and for one that warns a month ahead. The
+    # sign is the finding: the same monitor, on the same data, warns early or
+    # late depending on the mechanism.
+    from credit_monitor.monitoring import blind_window
+
+    early = blind_window.compute(
+        "full",
+        calibration_gap_by_month={0: -0.003, 1: -0.004, 2: -0.006, 3: -0.017},
+        # The drift alarm fires in month 2, one month before the degradation.
+        drift_alarm_by_month={0: False, 1: False, 2: True, 3: True},
+        label_lag_months=2,
+        degradation_gap_threshold=-0.015,
+    )
+
+    assert early.first_degraded_month == 3
+    assert early.first_drift_alarm_month == 2
+    assert early.lead_time_months == 1  # positive: warned a month early
+
+
+def test_a_negative_lead_time_is_blindness() -> None:
+    from credit_monitor.monitoring import blind_window
+
+    late = blind_window.compute(
+        "stress_only",
+        calibration_gap_by_month={0: -0.003, 3: -0.017, 4: -0.018},
+        drift_alarm_by_month=dict.fromkeys(range(7), False),
+        label_lag_months=2,
+        degradation_gap_threshold=-0.015,
+    )
+
+    assert late.lead_time_months == -2
+
+
+def test_an_alarm_before_the_degradation_still_counts_as_the_signal() -> None:
+    # The correction: restricting the search for the first alarm to degraded
+    # months threw away exactly the early-warning case.
+    from credit_monitor.monitoring import blind_window
+
+    window = blind_window.compute(
+        "full",
+        calibration_gap_by_month={0: -0.001, 5: -0.020},
+        drift_alarm_by_month={0: True, 5: True},
+        label_lag_months=2,
+        degradation_gap_threshold=-0.015,
+    )
+
+    assert window.first_drift_alarm_month == 0
+    assert window.lead_time_months == 5
+
+
+def test_no_degradation_means_no_lead_time() -> None:
+    from credit_monitor.monitoring import blind_window
+
+    window = blind_window.compute(
+        "composition_only",
+        calibration_gap_by_month={0: -0.001, 6: -0.003},
+        drift_alarm_by_month={6: True},
+        label_lag_months=2,
+        degradation_gap_threshold=-0.0056,
+    )
+
+    assert window.lead_time_months is None
+
+
+def test_the_calibrated_thresholds_come_from_the_config(
+    config: MonitoringConfig,
+) -> None:
+    # Measured, not chosen: percentile 0.5% and 1% of the null distributions
+    # from 500 no-drift draws of 7,000 rows (docs/metrics.md §4.2).
+    assert config.calibration_gap_critical == -0.0056
+    assert config.auc_warning == 0.8372
+    # The blind window uses the same critical threshold: two different numbers
+    # for "the model got worse" would give two answers to one question.
+    assert config.degradation_gap_threshold == config.calibration_gap_critical

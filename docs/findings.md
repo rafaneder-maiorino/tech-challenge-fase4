@@ -1094,26 +1094,58 @@ pontuado. Desempenho precisa do desfecho, que chega **dois meses depois**
 mexe nas features é visível na hora; uma que não mexe fica invisível até os
 rótulos chegarem, por pior que seja.
 
-### Medido, com atraso de 2 meses e degradação real definida como gap ≤ -0,015
+### Corrigido duas vezes antes de estar certo
 
-| cenário | meses degradados | 1º degradado | 1º sinal | **meses cego** |
+A primeira versão deste achado reportava **meses cegos**, uma contagem sempre
+não-negativa. Isso **escondia metade do resultado**: dizia "0 meses cego" tanto
+para um monitor que avisa na hora quanto para um que avisa um mês antes, e não
+são o mesmo monitor.
+
+A métrica agora é assinada:
+
+```
+lead_time_months = primeiro_mês_degradado − primeiro_sinal
+```
+
+**Positivo é aviso antecipado; negativo é cegueira.** O sinal é o achado: o
+**mesmo** monitor, sobre os **mesmos** dados, avisa antes ou depois conforme o
+mecanismo em ação.
+
+A segunda correção foi o limiar. O -0,015 provisório tinha falso alarme medido
+de **0,0%** — seguro e cego, 6,5 desvios abaixo da média nula. Substituído pelo
+percentil 0,5% da distribuição nula do gap (**-0,0056**, falso alarme 0,6%),
+calibrado pelo mesmo método do dia 8. **E isso moveu um número.**
+
+### Com o limiar provisório (-0,015)
+
+| cenário | 1º degradado | 1º alarme de drift | 1º sinal | **lead (meses)** |
 |---|---|---|---|---|
-| `full` | 3, 4, 5, 6 | 3 | **3** | **0** |
-| `composition_only` | nenhum | — | — | 0 |
-| `stress_only` | 3, 4, 5, 6 | 3 | **5** | **2** |
+| `full` | 3 | 2 | 2 | **+1** — aviso antecipado |
+| `composition_only` | — | 2 | — | n/a |
+| `stress_only` | 3 | nunca | 5 | **-2** — cego |
 
-**`full` tem janela cega zero** porque o drift de feature já está disparando no
-mês 3 — os dois mecanismos andam juntos, e o mais rápido dos dois avisa.
+### Com o limiar calibrado (-0,0056)
 
-**`composition_only` nunca degrada.** Zero aqui não é mérito do monitor: não há
-o que ver. O braço grita no painel de drift (PSI 0,93) e mantém o gap em
--0,0028. Vale distinguir "não fiquei cego" de "não havia nada".
+| cenário | 1º degradado | 1º alarme de drift | 1º sinal | **lead (meses)** |
+|---|---|---|---|---|
+| `full` | **1** | 2 | 2 | **-1** — cego |
+| `composition_only` | — | 2 | — | n/a |
+| `stress_only` | **2** | nunca | 4 | **-2** — cego |
 
-**`stress_only` fica dois meses cego.** A degradação começa no mês 3 — gap de
--0,0171, já além do limiar — e nenhuma feature se move: PSI máximo de 0,008,
-doze vezes abaixo do limiar de alerta. O único sinal possível é o rótulo, e o
-rótulo do mês 3 só chega no passo 5. Durante os meses **3 e 4** o modelo está
-medidamente pior e **todo painel está verde**.
+**O `full` trocou de sinal: de +1 para -1.** Não porque o monitor piorou, mas
+porque o limiar provisório era tão conservador que não reconhecia como
+degradação o gap de -0,0091 do mês 1 — que está fora da distribuição nula. Com
+um limiar honesto, a degradação começa **antes** do alarme de drift, e o aviso
+"antecipado" some.
+
+Vale a ressalva: o cruzamento do mês 1 no `full` é de **um lote só**, perto do
+limiar, e com 0,6% de falso alarme por lote há ~4% de chance de ver um falso
+positivo em sete meses. A degradação **sustentada** começa no mês 3 nos dois
+cenários. Uma política de alerta séria exigiria N lotes consecutivos; a métrica
+aqui é deliberadamente crua para não esconder o cruzamento.
+
+O `stress_only` não se mexeu: **-2 em qualquer limiar**, porque nenhum limiar
+de gap muda o fato de que nenhuma feature se move.
 
 ### Por que o número é exatamente o atraso
 
@@ -1137,3 +1169,10 @@ conceito. Este achado diz **quanto isso custa**, na unidade em que a pergunta é
 feita numa reunião: meses. Uma afirmação qualitativa sobre cobertura virou um
 prazo, e prazo é a forma que a conversa toma quando alguém pergunta "e se
 acontecer?".
+
+E as duas correções ensinam a mesma coisa por caminhos diferentes. Uma métrica
+**clipada em zero** perde informação de um lado só, e o lado perdido foi
+justamente o interessante. Um limiar **não calibrado** parece conservador e é
+cego — o -0,015 fazia o monitor parecer melhor do que é, e a correção piorou o
+número reportado. Métrica que só melhora quando corrigida é métrica que ninguém
+está corrigindo de verdade.
