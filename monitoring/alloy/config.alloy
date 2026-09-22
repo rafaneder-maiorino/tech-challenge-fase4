@@ -1,0 +1,63 @@
+// Alloy: recolhe os JSONL do pipeline e entrega ao Loki.
+//
+// O pipeline escreve uma linha JSON por evento em logs/*.jsonl. Aqui elas são
+// descobertas, lidas, têm batch_id / scenario / stage promovidos a rótulo e
+// seguem para o Loki.
+//
+// Rótulo é o que o Loki indexa, e indexar demais é o erro clássico: cada
+// combinação de valores cria um fluxo próprio. batch_id (8 valores), scenario
+// (3) e stage (poucos) são cardinalidade baixa e são exatamente por onde se
+// filtra. O resto do JSON continua consultável pelo parser do LogQL sem custo
+// de índice.
+
+local.file_match "pipeline_logs" {
+  path_targets = [{
+    __path__ = "/var/log/credit-monitor/*.jsonl",
+    job      = "credit-monitor",
+  }]
+  sync_period = "5s"
+}
+
+loki.source.file "pipeline_logs" {
+  targets               = local.file_match.pipeline_logs.targets
+  forward_to            = [loki.process.pipeline_logs.receiver]
+  tail_from_end         = false
+  legacy_positions_file = "/var/lib/alloy/data/positions.yaml"
+}
+
+loki.process "pipeline_logs" {
+  forward_to = [loki.write.default.receiver]
+
+  stage.json {
+    expressions = {
+      batch_id = "batch_id",
+      scenario = "scenario",
+      stage    = "stage",
+      status   = "status",
+      level    = "level",
+      event    = "event",
+    }
+  }
+
+  // Sem batch_id/scenario/stage a linha ainda chega; só não é filtrável por
+  // eles. Melhor que descartar: um log de erro precoce é justamente o que não
+  // tem contexto e o que mais se quer ver.
+  stage.labels {
+    values = {
+      batch_id = "",
+      scenario = "",
+      stage    = "",
+      status   = "",
+      level    = "",
+    }
+  }
+}
+
+loki.write "default" {
+  endpoint {
+    url = "http://loki:3100/loki/api/v1/push"
+  }
+  external_labels = {
+    stack = "tech-challenge-fase4",
+  }
+}

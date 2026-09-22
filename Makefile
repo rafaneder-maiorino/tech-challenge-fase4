@@ -5,7 +5,8 @@
 
 .PHONY: help install download inspect lint test \
         validate-bad-batch validate-clean-batch \
-        prepare train recheck-correlation mlflow-ui simulate drift-reports publish-reports aa-test mmd
+        prepare train recheck-correlation mlflow-ui simulate drift-reports publish-reports aa-test mmd \
+        stack-up stack-down stack-logs monitor-replay monitor-all
 
 # Default target: `make` with no arguments lists what exists.
 help:
@@ -24,6 +25,10 @@ help:
 	@echo "  make publish-reports - publica o conjunto curado no repositório (ato deliberado)"
 	@echo "  make aa-test   - teste A/A e varredura significância vs magnitude"
 	@echo "  make mmd       - testes MMD, A/A do MMD e localização por par"
+	@echo "  make stack-up  - sobe Prometheus, Pushgateway, Loki, Alloy e Grafana"
+	@echo "  make stack-down- derruba a stack (mantém os volumes)"
+	@echo "  make monitor-all    - empurra as métricas de todos os lotes de uma vez"
+	@echo "  make monitor-replay - empurra mês a mês com pausa, para assistir ao painel"
 	@echo "  make lint      - roda o ruff (lint + formatação)"
 	@echo "  make test      - roda a suíte de testes (pytest)"
 
@@ -139,3 +144,37 @@ aa-test:
 # MMD nos lotes, A/A do próprio MMD e localização por par de features.
 mmd:
 	uv run python scripts/mmd_test.py
+
+# --------------------------------------------------------------------------
+# Etapa 3 — stack de observabilidade.
+#
+# COMPOSE é definido uma vez: o `-f` é obrigatório porque o arquivo não tem o
+# nome padrão, e esquecê-lo num alvo faz o compose falar com o projeto errado.
+# --------------------------------------------------------------------------
+COMPOSE := docker compose -f docker-compose.monitoring.yml
+
+# Grafana em http://localhost:3000, Prometheus em :9090, Pushgateway em :9091,
+# Loki em :3100. Nunca 5000 — no macOS é do AirPlay Receiver.
+stack-up:
+	$(COMPOSE) up -d
+	@echo ""
+	@echo "Grafana     http://localhost:3000  (anônimo, Viewer)"
+	@echo "Prometheus  http://localhost:9090"
+	@echo "Pushgateway http://localhost:9091"
+	@echo "Loki        http://localhost:3100"
+
+# Sem -v: os volumes sobrevivem, então a série histórica e os logs continuam lá
+# no próximo `stack-up`. Apagar dado exige o comando explícito.
+stack-down:
+	$(COMPOSE) down
+
+stack-logs:
+	$(COMPOSE) logs --tail=40
+
+# Empurra tudo de uma vez.
+monitor-all:
+	uv run python scripts/monitor_push.py --pause 0
+
+# Mês a mês com pausa, para assistir ao painel virando de verde para vermelho.
+monitor-replay:
+	uv run python scripts/monitor_push.py --pause $(or $(PAUSE),20)
