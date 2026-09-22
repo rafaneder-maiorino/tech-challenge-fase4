@@ -48,6 +48,22 @@ VERDICT_OK: Final[int] = 0
 VERDICT_WARNING: Final[int] = 1
 VERDICT_CRITICAL: Final[int] = 2
 VERDICT_INSUFFICIENT_SAMPLE: Final[int] = -1
+VERDICT_BLOCKED: Final[int] = -2
+"""The contract refused the batch; no drift was computed at all.
+
+Distinct from every other code, and negative for the same reason ``-1`` is: a
+dashboard sorting by the number must not read "blocked" as a position on the
+drift scale. There is no drift reading for a blocked batch — not a low one, not
+a high one. Computing a colour from rows the contract rejected would be
+describing data the pipeline decided not to trust.
+"""
+
+# stage_status is 1 ok / 0 failed, and -1 for a stage that never ran because an
+# earlier one blocked. Zero would be a lie (the stage did not fail, it was
+# never attempted) and 1 would be a worse one.
+STAGE_OK: Final[int] = 1
+STAGE_FAILED: Final[int] = 0
+STAGE_SKIPPED: Final[int] = -1
 
 
 @dataclass(frozen=True, slots=True)
@@ -59,11 +75,13 @@ class ScoringMetrics:
     batch_size: int
     sample_sufficient: bool
     drift_verdict: int
-    prediction_mean: float
-    prediction_psi: float
-    drifted_warning: int
-    drifted_critical: int
     last_success_timestamp_seconds: float
+    prediction_mean: float | None = None
+    """``None`` when the batch was blocked and never scored."""
+
+    prediction_psi: float | None = None
+    drifted_warning: int | None = None
+    drifted_critical: int | None = None
     psi_by_feature: dict[str, float] = field(default_factory=dict)
     psi_weighted_by_feature: dict[str, float] = field(default_factory=dict)
     violations: dict[tuple[str, str], int] = field(default_factory=dict)
@@ -115,19 +133,25 @@ def build_scoring_registry(metrics: ScoringMetrics) -> CollectorRegistry:
             "veredito de drift: 0 ok, 1 alerta, 2 crítico, -1 amostra insuficiente",
             float(metrics.drift_verdict),
         ),
-        "prediction_mean": (
-            "probabilidade média prevista pelo campeão",
-            metrics.prediction_mean,
-        ),
-        "prediction_psi": (
-            "PSI da distribuição de score contra a referência",
-            metrics.prediction_psi,
-        ),
         "last_success_timestamp_seconds": (
             "instante unix da última execução bem-sucedida",
             metrics.last_success_timestamp_seconds,
         ),
     }
+    # Absent, not zero. A blocked batch has no prediction mean, and publishing
+    # 0 would put a plausible-looking number on a dashboard for a batch that
+    # was never scored — the worst of the three options, because it is the
+    # only one a reader cannot tell from a real measurement.
+    if metrics.prediction_mean is not None:
+        simple["prediction_mean"] = (
+            "probabilidade média prevista pelo campeão",
+            metrics.prediction_mean,
+        )
+    if metrics.prediction_psi is not None:
+        simple["prediction_psi"] = (
+            "PSI da distribuição de score contra a referência",
+            metrics.prediction_psi,
+        )
     for name, (documentation, value) in simple.items():
         Gauge(name, documentation, registry=registry).set(value)
 
@@ -153,14 +177,15 @@ def build_scoring_registry(metrics: ScoringMetrics) -> CollectorRegistry:
     for feature, value in metrics.psi_weighted_by_feature.items():
         weighted.labels(feature=feature).set(value)
 
-    drifted = Gauge(
-        "drifted_features",
-        "quantas features cruzaram cada faixa de PSI",
-        ["level"],
-        registry=registry,
-    )
-    drifted.labels(level="warning").set(float(metrics.drifted_warning))
-    drifted.labels(level="critical").set(float(metrics.drifted_critical))
+    if metrics.drifted_warning is not None and metrics.drifted_critical is not None:
+        drifted = Gauge(
+            "drifted_features",
+            "quantas features cruzaram cada faixa de PSI",
+            ["level"],
+            registry=registry,
+        )
+        drifted.labels(level="warning").set(float(metrics.drifted_warning))
+        drifted.labels(level="critical").set(float(metrics.drifted_critical))
 
     violations = Gauge(
         "contract_violations",

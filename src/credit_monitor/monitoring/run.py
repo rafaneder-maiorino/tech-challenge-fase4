@@ -188,6 +188,65 @@ def run_scoring(
             rows_quarantined=quarantined,
         )
 
+    # --- short circuit ----------------------------------------------------
+    #
+    # A blocked batch stops here, and that is the whole point of a gate. The
+    # rows the contract rejected are still in the frame; computing a PSI or a
+    # prediction mean over them would produce a number that looks like a
+    # measurement of the population and is actually a measurement of corrupt
+    # data. The stage-2 A/A floor happened to mask this for the 204-row demo
+    # batch, but a blocked batch of 5,000 rows would have been handed a drift
+    # colour computed on data the pipeline had just refused.
+    #
+    # Downstream stages are marked SKIPPED (-1), not failed and not ok: they
+    # were never attempted.
+    if blocking:
+        for stage in ("drift", "scoring"):
+            status[stage] = m.STAGE_SKIPPED
+        blocked_metrics = m.ScoringMetrics(
+            rows_in=len(features),
+            rows_quarantined=quarantined,
+            batch_size=len(features),
+            sample_sufficient=len(features) >= config.min_batch_size,
+            drift_verdict=m.VERDICT_BLOCKED,
+            last_success_timestamp_seconds=time.time(),
+            violations=violations,
+            stage_durations_seconds=durations,
+            stage_status=status,
+        )
+        if gateway:
+            m.delete_group(m.SCORING_JOB, scenario, batch_id, gateway)
+            m.push(
+                m.build_scoring_registry(blocked_metrics),
+                m.SCORING_JOB,
+                scenario,
+                batch_id,
+                gateway,
+            )
+        run_id = _record_mlflow(
+            batch_id, scenario, blocked_metrics, "blocked", champion_version
+        )
+        pipeline_log.emit(
+            "scoring.blocked",
+            stage="finish",
+            status="blocked",
+            level=logging.ERROR,
+            verdict="blocked",
+            drift_verdict=m.VERDICT_BLOCKED,
+            skipped_stages=["drift", "scoring"],
+            rows_quarantined=quarantined,
+            rules=blocking,
+            mlflow_run_id=run_id,
+        )
+        return ScoringOutcome(
+            batch_id=batch_id,
+            scenario=scenario,
+            metrics=blocked_metrics,
+            verdict_label="blocked",
+            mlflow_run_id=run_id,
+            stage_failures=failures,
+        )
+
     # --- drift ------------------------------------------------------------
     started = time.perf_counter()
     psi_values = {
@@ -383,19 +442,24 @@ def _record_mlflow(
                 "batch_size": scoring.batch_size,
             }
         )
-        mlflow.log_metrics(
-            {
-                "drift_verdict": float(scoring.drift_verdict),
-                "sample_sufficient": float(scoring.sample_sufficient),
-                "rows_in": float(scoring.rows_in),
-                "rows_quarantined": float(scoring.rows_quarantined),
-                "prediction_mean": scoring.prediction_mean,
-                "prediction_psi": scoring.prediction_psi,
-                "drifted_warning": float(scoring.drifted_warning),
-                "drifted_critical": float(scoring.drifted_critical),
-                **{f"psi_{k}": v for k, v in scoring.psi_by_feature.items()},
-            }
-        )
+        # Only what was actually measured. A blocked batch has no prediction
+        # mean and no PSI, and logging zeros would put fabricated numbers in
+        # the audit trail — the one artefact that has to be trustworthy.
+        recorded: dict[str, float] = {
+            "drift_verdict": float(scoring.drift_verdict),
+            "sample_sufficient": float(scoring.sample_sufficient),
+            "rows_in": float(scoring.rows_in),
+            "rows_quarantined": float(scoring.rows_quarantined),
+        }
+        optional = {
+            "prediction_mean": scoring.prediction_mean,
+            "prediction_psi": scoring.prediction_psi,
+            "drifted_warning": scoring.drifted_warning,
+            "drifted_critical": scoring.drifted_critical,
+        }
+        recorded.update({k: float(v) for k, v in optional.items() if v is not None})
+        recorded.update({f"psi_{k}": v for k, v in scoring.psi_by_feature.items()})
+        mlflow.log_metrics(recorded)
         mlflow.set_tags(
             {
                 "verdict": verdict_name,
