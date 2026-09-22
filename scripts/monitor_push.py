@@ -34,6 +34,7 @@ from credit_monitor.constants import (
 from credit_monitor.data.preprocess import INCOME_MISSING_COLUMN, MODEL_FEATURES
 from credit_monitor.logging_config import configure_logging
 from credit_monitor.models.score import load_champion
+from credit_monitor.monitoring import blind_window
 from credit_monitor.monitoring import metrics as m
 from credit_monitor.monitoring.config import MonitoringConfig
 from credit_monitor.monitoring.run import (
@@ -168,10 +169,12 @@ def main() -> None:
     reference_features = reference[list(MODEL_FEATURES)]
 
     pushed: list[tuple[str, str, str]] = []
+    # Per scenario and month, for the blind-window measurement at the end.
+    gaps: dict[str, dict[int, float]] = {}
+    alarms: dict[str, dict[int, bool]] = {}
 
-    def scoring_and_labels(
-        batch_id: str, scenario: str, directory: Path, lag: int
-    ) -> None:
+    def score_month(batch_id: str, scenario: str, directory: Path) -> str:
+        """Scoring-time metrics: available the day the batch is scored."""
         features = pd.read_parquet(directory / "features.parquet")
         outcome = run_scoring(
             batch_id=batch_id,
@@ -184,46 +187,98 @@ def main() -> None:
             champion_version=champion_version,
             gateway=args.gateway,
         )
-        labels = pd.read_parquet(directory / "labels.parquet")
-        predictions = pd.read_parquet(directory / "predictions.parquet")
-        run_label_arrival(
+        pushed.append((scenario, batch_id, outcome.verdict_label))
+        worst = (
+            max(outcome.metrics.psi_by_feature.values())
+            if outcome.metrics.psi_by_feature
+            else float("nan")
+        )
+        print(
+            f"  scoring  {scenario:18} {batch_id:14} "
+            f"veredito={outcome.verdict_label:20} psi_max={worst:.3f} "
+            f"quarentena={outcome.metrics.rows_quarantined}"
+        )
+        return outcome.verdict_label
+
+    def deliver_labels(batch_id: str, scenario: str, directory: Path, lag: int) -> None:
+        """Label-time metrics: only published once the outcome would exist.
+
+        A blocked batch never gets here. Its rows were rejected, so measuring
+        the model's performance on them would be scoring a decision the
+        pipeline refused to make.
+        """
+        features = pd.read_parquet(directory / "features.parquet")
+        label_metrics = run_label_arrival(
             batch_id=batch_id,
             scenario=scenario,
             features=features,
-            labels=labels,
-            predictions=predictions,
+            labels=pd.read_parquet(directory / "labels.parquet"),
+            predictions=pd.read_parquet(directory / "predictions.parquet"),
             model=model,
             label_lag_months=lag,
             gateway=args.gateway,
         )
-        pushed.append((scenario, batch_id, outcome.verdict_label))
         print(
-            f"  {scenario:18} {batch_id:14} veredito={outcome.verdict_label:20} "
-            f"psi_max={max(outcome.metrics.psi_by_feature.values()):.3f} "
-            f"quarentena={outcome.metrics.rows_quarantined}"
+            f"  rótulos  {scenario:18} {batch_id:14} "
+            f"auc={label_metrics.auc:.4f} gap={label_metrics.calibration_gap:+.4f} "
+            f"atraso={lag}m"
         )
-        if args.pause:
-            time.sleep(args.pause)
 
     print()
     print("EMPURRANDO METRICAS")
     print("===================")
     simulation = SimulationConfig.load()
-    for scenario in SCENARIOS:
-        directory = ensure_scenario(scenario, args.batches_dir, args.data_dir, model)
-        for month in range(simulation.n_months + 1):
-            scoring_and_labels(
-                f"month_{month:02d}",
+    lag = config.label_lag_months
+    directories = {
+        scenario: ensure_scenario(scenario, args.batches_dir, args.data_dir, model)
+        for scenario in SCENARIOS
+    }
+
+    # The replay walks STEPS, not months. At step t the monitor sees the
+    # scoring metrics for month t and the labels for month t - lag. That is
+    # what the Pushgateway's refusal of client timestamps forces anyway, and
+    # it is also simply true: the outcome has not happened yet.
+    for step in range(simulation.n_months + 1):
+        print(f"\n-- passo {step} " + "-" * 50)
+        for scenario in SCENARIOS:
+            verdict = score_month(
+                f"month_{step:02d}",
                 scenario,
-                directory / f"month_{month:02d}",
-                lag=simulation.n_months - month,
+                directories[scenario] / f"month_{step:02d}",
+            )
+            alarms.setdefault(scenario, {})[step] = verdict in {"warning", "critical"}
+            labelled = step - lag
+            if labelled >= 0:
+                deliver_labels(
+                    f"month_{labelled:02d}",
+                    scenario,
+                    directories[scenario] / f"month_{labelled:02d}",
+                    lag,
+                )
+        if args.pause:
+            time.sleep(args.pause)
+
+    # Gaps for every month, computed whether or not the labels were published.
+    # The blind window is about what the MONITOR could see; the degradation is
+    # a fact about the data either way.
+    for scenario in SCENARIOS:
+        gaps[scenario] = {}
+        for month in range(simulation.n_months + 1):
+            directory = directories[scenario] / f"month_{month:02d}"
+            labels = pd.read_parquet(directory / "labels.parquet")
+            predictions = pd.read_parquet(directory / "predictions.parquet")
+            truth = (labels[TARGET_COLUMN].astype(str) == "1").to_numpy(dtype=float)
+            gaps[scenario][month] = float(
+                predictions[PREDICTION_COLUMN].mean() - truth.mean()
             )
 
     # --- the two edge cases ----------------------------------------------
+    print()
     small = make_small_demo(
         args.data_dir, args.batches_dir, args.small_demo_rows, model
     )
-    scoring_and_labels(SMALL_DEMO, "full", small, lag=0)
+    score_month(SMALL_DEMO, "full", small)
+    deliver_labels(SMALL_DEMO, "full", small, lag=0)
 
     features, labels, predictions = prepare_dirty(model)
     outcome = run_scoring(
@@ -237,22 +292,55 @@ def main() -> None:
         champion_version=champion_version,
         gateway=args.gateway,
     )
-    run_label_arrival(
-        batch_id=DIRTY,
-        scenario="full",
-        features=features,
-        labels=labels,
-        predictions=predictions,
-        model=model,
-        label_lag_months=0,
-        gateway=args.gateway,
-    )
     pushed.append(("full", DIRTY, outcome.verdict_label))
     print(
-        f"  {'full':18} {DIRTY:14} veredito={outcome.verdict_label:20} "
-        f"estagios_falhos={outcome.stage_failures} "
+        f"  scoring  {'full':18} {DIRTY:14} veredito={outcome.verdict_label:20} "
+        f"estagios={outcome.metrics.stage_status} "
         f"quarentena={outcome.metrics.rows_quarantined}"
     )
+    # No label metrics for a blocked batch, deliberately: the rows were
+    # rejected, so measuring the model's performance on them would be grading
+    # a decision the pipeline refused to make.
+    if outcome.verdict_label == "blocked":
+        print(f"  rótulos  {'full':18} {DIRTY:14} NÃO publicados (lote bloqueado)")
+
+    # --- the blind window -------------------------------------------------
+    print()
+    print("JANELA CEGA POR CENARIO")
+    print("=======================")
+    print(
+        f"atraso de rótulo = {lag} meses | "
+        f"degradação real = gap <= {config.degradation_gap_threshold}"
+    )
+    print()
+    print(
+        f"{'cenário':18} {'meses degradados':>18} {'1º degradado':>13} "
+        f"{'1º sinal':>9} {'meses cego':>11}"
+    )
+    windows = []
+    for scenario in SCENARIOS:
+        window = blind_window.compute(
+            scenario,
+            gaps[scenario],
+            alarms.get(scenario, {}),
+            lag,
+            config.degradation_gap_threshold,
+        )
+        windows.append(window)
+        degraded = ", ".join(str(month) for month in window.degraded_months) or "nenhum"
+        print(
+            f"{scenario:18} {degraded:>18} "
+            f"{window.first_degraded_month!s:>13} "
+            f"{window.first_signal_month!s:>9} {window.months_blind:>11}"
+        )
+    worst = max(windows, key=lambda w: w.months_blind)
+    if worst.months_blind:
+        print()
+        print(
+            f"Pior caso: `{worst.scenario}` fica {worst.months_blind} "
+            f"mês(es) degradando sem sinal de nenhum tipo "
+            f"(meses {', '.join(str(m) for m in worst.blind_months)})."
+        )
 
     print()
     print(f"{len(pushed)} grupos empurrados para {args.gateway}")

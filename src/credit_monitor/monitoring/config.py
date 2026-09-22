@@ -21,6 +21,8 @@ class MonitoringConfig:
     ks_alpha: float
     ks_decides_verdict: bool
     mmd_enabled: bool
+    label_lag_months: int
+    degradation_gap_threshold: float
 
     @classmethod
     def load(cls, path: Path = DEFAULT_CONFIG_PATH) -> "MonitoringConfig":
@@ -33,4 +35,6 @@ class MonitoringConfig:
             ks_alpha=float(raw["ks_alpha"]),
             ks_decides_verdict=bool(raw["ks_decides_verdict"]),
             mmd_enabled=bool(raw["mmd_enabled"]),
+            label_lag_months=int(raw["label_lag_months"]),
+            degradation_gap_threshold=float(raw["degradation_gap_threshold"]),
         )
