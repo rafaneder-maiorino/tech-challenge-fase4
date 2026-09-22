@@ -21,6 +21,7 @@ import mlflow
 import mlflow.sklearn
 import numpy as np
 import pandas as pd
+from mlflow.exceptions import MlflowException
 
 from credit_monitor.constants import (
     CHAMPION_ALIAS,
@@ -55,6 +56,14 @@ class LabelLeakageError(ValueError):
     """A frame handed to the scorer contained the target column."""
 
 
+MISSING_CHAMPION_MESSAGE: Final[str] = (
+    "campeão não encontrado em {uri} — rode `make train` antes.\n"
+    "O registry do MLflow (mlruns/ e mlflow.db) é gitignored, então um clone "
+    "novo não traz modelo nenhum. A ordem é: make prepare -> make train.\n"
+    "Ou rode `make all`, que faz a cadeia inteira na ordem certa."
+)
+
+
 def load_champion(uri: str = CHAMPION_URI) -> ProbabilisticClassifier:
     """Load the model behind the ``champion`` alias, as a sklearn estimator.
 
@@ -71,15 +80,27 @@ def load_champion(uri: str = CHAMPION_URI) -> ProbabilisticClassifier:
     ``predict_proba``, and calibrated probabilities are the entire point of the
     Brier score and the calibration gap.
 
+    ``mlruns/`` and ``mlflow.db`` are gitignored, so a fresh clone has no
+    champion and every caller of this function fails. Raw, the failure is an
+    MLflow stack trace ending in "Registered Model with name=... not found",
+    which tells a first-time reader nothing about what to run. The message
+    below names the command instead.
+
     Args:
         uri: The model URI; defaults to the champion alias.
 
     Returns:
         The loaded estimator, with ``predict_proba``.
+
+    Raises:
+        SystemExit: No champion is registered yet.
     """
     mlflow.set_tracking_uri(MLFLOW_TRACKING_URI)
     log.info("score.loading_champion", extra={"uri": uri})
-    return mlflow.sklearn.load_model(uri)
+    try:
+        return mlflow.sklearn.load_model(uri)
+    except MlflowException as error:
+        raise SystemExit(MISSING_CHAMPION_MESSAGE.format(uri=uri)) from error
 
 
 def predict_proba(model: ProbabilisticClassifier, features: pd.DataFrame) -> np.ndarray:

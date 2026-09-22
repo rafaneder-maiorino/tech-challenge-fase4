@@ -38,6 +38,7 @@ from credit_monitor.reporting.fairness_charts import (
     render_calibration_chart,
     render_odds_chart,
 )
+from credit_monitor.simulation.arms import ensure_scenario
 
 FAIRNESS_REPORTS_DIR: Final[Path] = REPORTS_DIR / "fairness"
 POSITIVE_LABEL: Final[str] = "1"
@@ -115,16 +116,21 @@ def main(argv: list[str] | None = None) -> int:
     threshold, champion = operating_threshold(args.data_dir / "training_summary.json")
     model = load_champion()
 
+    # `make simulate` writes only the `full` arm; the ablation arms used below
+    # are materialised on demand, deterministically from the same seed. Before
+    # this, `make bias` failed on a fresh clone because the arms happened to
+    # exist only after `make monitor-all` — which needs a Docker stack up.
+    arms = {
+        scenario: ensure_scenario(scenario, model, args.production_dir, args.data_dir)
+        for scenario in ("full", "composition_only", "stress_only")
+    }
+
     populations: dict[str, pd.DataFrame] = {
         "holdout": pd.read_parquet(args.data_dir / "holdout.parquet"),
-        "full/month_00": load_batch(args.production_dir / "month_00"),
-        "full/month_06": load_batch(args.production_dir / "month_06"),
-        "composition_only/month_06": load_batch(
-            args.production_dir / "ablation_composition_only" / "month_06"
-        ),
-        "stress_only/month_06": load_batch(
-            args.production_dir / "ablation_stress_only" / "month_06"
-        ),
+        "full/month_00": load_batch(arms["full"] / "month_00"),
+        "full/month_06": load_batch(arms["full"] / "month_06"),
+        "composition_only/month_06": load_batch(arms["composition_only"] / "month_06"),
+        "stress_only/month_06": load_batch(arms["stress_only"] / "month_06"),
     }
 
     measured = {
