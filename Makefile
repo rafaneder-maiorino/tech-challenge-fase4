@@ -6,11 +6,12 @@
 .PHONY: help install download inspect lint test \
         validate-bad-batch validate-clean-batch \
         prepare train recheck-correlation mlflow-ui simulate drift-reports publish-reports aa-test mmd \
-        stack-up stack-down stack-logs monitor-replay monitor-all alerts-test dashboards bias seed-noise
+        stack-up stack-down stack-logs monitor-replay monitor-all alerts-test dashboards bias seed-noise all
 
 # Default target: `make` with no arguments lists what exists.
 help:
 	@echo "Targets disponíveis:"
+	@echo "  make all       - a cadeia inteira na ordem certa (~7 min, ~1 GB) — comece aqui"
 	@echo "  make install   - cria o ambiente e instala as dependências (uv sync)"
 	@echo "  make download  - baixa o dataset bruto do OpenML e verifica o checksum"
 	@echo "  make inspect   - gera reports/inspection.md a partir do dado bruto"
@@ -37,6 +38,35 @@ help:
 
 # Installs the project itself too (src layout), which is what makes
 # `import credit_monitor` work without a PYTHONPATH hack.
+# A cadeia inteira, na ordem em que as dependências exigem. É o alvo para quem
+# clonou agora: nenhum passo aqui roda sobre estado deixado por outro dia.
+#
+# O que NÃO entra, de propósito:
+#   - validate-bad-batch, que sai com código != 0 por desenho (o portão
+#     bloqueou o lote) e derrubaria o make;
+#   - publish-reports, o único alvo que toca HTML versionado;
+#   - stack-up e monitor-all, que precisam do Docker de pé — ficam num alvo
+#     próprio para que `make all` funcione sem Docker instalado.
+#
+# Medido num MacBook (Apple Silicon, cache do uv quente): ~7 min e ~1 GB em
+# disco, dos quais 852 MB são o .venv. Com o cache frio some ~2 min no install.
+all:
+	$(MAKE) download
+	$(MAKE) inspect
+	$(MAKE) prepare
+	$(MAKE) train
+	$(MAKE) simulate
+	$(MAKE) drift-reports
+	$(MAKE) aa-test
+	$(MAKE) bias
+	$(MAKE) seed-noise
+	$(MAKE) dashboards
+	$(MAKE) lint
+	$(MAKE) test
+	@echo ""
+	@echo "Cadeia completa. Para a observabilidade (precisa de Docker):"
+	@echo "  make stack-up && make monitor-all"
+
 install:
 	uv sync
 
