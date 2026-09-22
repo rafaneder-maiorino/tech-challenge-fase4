@@ -24,7 +24,7 @@ comando fora de ordem falha, e a falha não é o projeto estar quebrado.
 
 ```bash
 make install    # 1. ambiente (uv sync)
-make all        # 2. a cadeia inteira, na ordem certa — ~7 min, ~1 GB
+make all        # 2. a cadeia inteira, na ordem certa — ~4,5 min, ~1 GB
 ```
 
 É isso. `make all` encadeia tudo abaixo e é o único comando necessário para
@@ -88,15 +88,21 @@ Num MacBook (Apple Silicon), clone limpo, do zero:
 
 | | |
 |---|---|
-| **tempo total** (passos 1–12) | **~7 min** · 417 s medidos |
+| **`git clone` + `make install` + `make all`** | **271 s (~4,5 min)**, medidos ponta a ponta |
 | **passo mais lento** | `make aa-test` — 155 s, dominado por 1.000 permutações |
-| **disco, repositório** | **~970 MB**, dos quais **852 MB são o `.venv`** |
-| disco, dados e relatórios | 23 MB (`data/`) + 84 MB (`reports/`) + 3,5 MB (MLflow) |
+| **disco, repositório** | **967 MB**, dos quais **852 MB são o `.venv`** |
+| disco, dados e relatórios | 23 MB (`data/`) + 84 MB (`reports/`) + 2,4 MB (MLflow) |
 | **disco, imagens Docker** | **~2,9 GB** (Grafana 1,49 GB · Alloy 877 MB · Prometheus 339 MB · Loki 191 MB · Pushgateway 36 MB) |
 | disco, volumes Docker | ~115 MB depois de um `make monitor-all` |
 
 Com o cache do `uv` frio, o passo 1 leva ~2 min a mais. O download são 3,3 MB
 da rede; o resto é local.
+
+> **`make all` termina com `git status` limpo.** Todo relatório versionado é
+> reproduzido byte a byte a partir do zero — `reports/simulation/`,
+> `reports/drift_tests/`, `reports/fairness/`, `reports/seed_noise.json` e os
+> três JSON das dashboards. Se algo aparecer como modificado depois de um
+> `make all`, é um resultado que mudou, não ruído de execução.
 
 ### Se um comando falhar
 
