@@ -5,38 +5,163 @@
 Camada de sustentação e confiabilidade para um modelo de *credit scoring* em
 produção. O projeto usa o dataset público **Give-Me-Some-Credit** (OpenML id
 45577) e cobre contratos de qualidade de dados, simulação e detecção estatística
-de *data drift* e *concept drift*, observabilidade de pipeline e modelo, e a
-documentação de governança e privacidade (LGPD). Esta primeira etapa entrega o
-esqueleto do projeto, o download reprodutível do dado bruto — verificado por
-SHA-256 — e um relatório factual de inspeção que serve de base para definir as
-regras do contrato de dados.
+de *data drift* e *concept drift*, observabilidade de pipeline e modelo, análise
+causal por intervenção, viés por grupo e a documentação de governança e
+privacidade (LGPD).
 
-## Comandos
+**As quatro etapas estão entregues.** Contratos de dados e modelo baseline
+(etapa 1), simulação e detecção estatística de drift (etapa 2), stack de
+observabilidade com alertas testados e runbooks (etapa 3), governança, LGPD,
+viés, causalidade e Model Card (etapa 4). Quinze achados registrados em
+[`docs/findings.md`](docs/findings.md), vários deles refutando decisões
+anteriores do próprio projeto.
+
+## Caminho do avaliador
+
+**Comece aqui.** `mlruns/` e `data/` são *gitignored*, então **o clone não traz
+o modelo nem os dados** — ele traz o código que os produz. A ordem importa: um
+comando fora de ordem falha, e a falha não é o projeto estar quebrado.
 
 ```bash
+make install    # 1. ambiente (uv sync)
+make all        # 2. a cadeia inteira, na ordem certa — ~7 min, ~1 GB
+```
+
+É isso. `make all` encadeia tudo abaixo e é o único comando necessário para
+reproduzir cada número citado na documentação.
+
+### A cadeia de artefatos
+
+```mermaid
+flowchart TD
+    A["OpenML 45577<br/>(download, SHA-256)"] --> B["data/raw/gmsc.parquet<br/>150.000 linhas"]
+    B --> C["reports/inspection.md<br/><i>make inspect</i>"]
+    B --> D["reference.parquet + holdout.parquet<br/><i>make prepare</i>"]
+    D --> E["campeão no MLflow<br/>alias @champion<br/><i>make train</i>"]
+    E --> F["data/production/month_00..06<br/><i>make simulate</i>"]
+    D --> F
+    F --> G["reports/evidently/<br/><i>make drift-reports</i>"]
+    F --> H["reports/drift_tests/<br/><i>make mmd &rarr; make aa-test</i>"]
+    F --> I["reports/fairness/<br/><i>make bias</i>"]
+    F --> J["Prometheus + Loki + Grafana<br/><i>make stack-up &rarr; make monitor-all</i>"]
+    E -.-> I
+    E -.-> J
+
+    style E fill:#eb6834,color:#fff
+    style B fill:#2a78d6,color:#fff
+```
+
+O nó laranja é o gargalo: **tudo depois dele precisa do campeão**, e o campeão
+não vem no repositório.
+
+### Os passos, o que cada um produz e do que depende
+
+| # | comando | produz | depende de | tempo |
+|---|---|---|---|---|
+| 1 | `make install` | `.venv/` (852 MB) | uv | 3 s (cache quente) |
+| 2 | `make download` | `data/raw/gmsc.parquet`, SHA-256 conferido | rede | 40 s |
+| 3 | `make inspect` | `reports/inspection.md` | 2 | 1 s |
+| 4 | `make prepare` | `reference.parquet` + `holdout.parquet` | 2 | 2 s |
+| 5 | `make train` | **campeão** no MLflow, alias `@champion` | 4 | 18 s |
+| 6 | `make simulate` | `data/production/month_00..06` + `reports/simulation/` | **5** | 6 s |
+| 7 | `make drift-reports` | `reports/evidently/_build/` | 6 | 23 s |
+| 8 | `make aa-test` | `reports/drift_tests/` (puxa `mmd` antes) | 6 | 155 s |
+| 9 | `make bias` | `reports/fairness/` + 3 PNG | 6 | 7 s |
+| 10 | `make seed-noise` | `reports/seed_noise.json` | 4 | 5 s |
+| 11 | `make dashboards` | `monitoring/grafana/dashboards/*.json` | — | < 1 s |
+| 12 | `make lint` · `make test` | 248 testes | 1 | 12 s |
+
+**Observabilidade, à parte** porque precisa de Docker:
+
+```bash
+make stack-up      # Prometheus, Pushgateway, Loki, Alloy, Grafana  (~1 s)
+make monitor-all   # empurra as métricas dos 3 cenários             (~11 s)
+```
+
+`make monitor-all` depende do passo 6 **e** do 5. Se o Grafana subir vazio,
+falta este comando — as dashboards são provisionadas por arquivo, mas os dados
+chegam por *push*.
+
+### Orçamento de execução, medido
+
+Num MacBook (Apple Silicon), clone limpo, do zero:
+
+| | |
+|---|---|
+| **tempo total** (passos 1–12) | **~7 min** · 417 s medidos |
+| **passo mais lento** | `make aa-test` — 155 s, dominado por 1.000 permutações |
+| **disco, repositório** | **~970 MB**, dos quais **852 MB são o `.venv`** |
+| disco, dados e relatórios | 23 MB (`data/`) + 84 MB (`reports/`) + 3,5 MB (MLflow) |
+| **disco, imagens Docker** | **~2,9 GB** (Grafana 1,49 GB · Alloy 877 MB · Prometheus 339 MB · Loki 191 MB · Pushgateway 36 MB) |
+| disco, volumes Docker | ~115 MB depois de um `make monitor-all` |
+
+Com o cache do `uv` frio, o passo 1 leva ~2 min a mais. O download são 3,3 MB
+da rede; o resto é local.
+
+### Se um comando falhar
+
+Os pontos de entrada nomeiam o pré-requisito em vez de vazar um *stack trace*:
+
+```
+$ make simulate          # sem ter rodado make train
+campeão não encontrado em models:/credit-default-baseline@champion — rode `make train` antes.
+O registry do MLflow (mlruns/ e mlflow.db) é gitignored, então um clone novo não traz modelo nenhum.
+A ordem é: make prepare -> make train.
+Ou rode `make all`, que faz a cadeia inteira na ordem certa.
+```
+
+> **macOS, dois detalhes que custam tempo se pegarem de surpresa:**
+>
+> 1. **`brew install libomp` antes do `make train`.** O XGBoost precisa do
+>    OpenMP em tempo de execução e ele não vem no *wheel*.
+> 2. **A UI do MLflow usa a porta 5001, não a 5000.** No macOS a 5000 é do
+>    AirPlay Receiver, que **responde** à requisição em vez de recusá-la — o
+>    MLflow parece subir e serve um 403 alheio. Nenhuma porta deste projeto
+>    usa a 5000.
+
+## Comandos, um a um
+
+```bash
+make all        # a cadeia inteira na ordem certa — o atalho
 make install    # cria o ambiente e instala as dependências (uv sync)
 make download   # baixa o dataset bruto do OpenML e verifica o checksum
 make inspect    # gera reports/inspection.md a partir do dado bruto
 make prepare    # limpa o dado bruto e grava reference + holdout
 make train      # treina os baselines e registra o campeão no MLflow
+make simulate   # gera seis meses de drift, pontua e escreve o resumo
 make lint       # roda o ruff (lint + verificação de formatação)
 make test       # roda a suíte de testes (pytest)
 ```
+
+Análises (todas dependem de `make simulate`):
+
+```bash
+make drift-reports  # relatórios do Evidently (em _build/, ignorado)
+make mmd            # MMD nos lotes e localização por par — escreve só o cache
+make aa-test        # teste A/A e o resumo estatístico (puxa `mmd` antes)
+make bias           # justiça por faixa etária + os três PNG
+make seed-noise     # piso de ruído de AUC e KS em cinco sementes
+```
+
+> **`make aa-test` depende de `make mmd`, e o Makefile força a ordem.** Quem
+> escreve `reports/drift_tests/summary.md` é o `aa-test`, e ele só preenche a
+> seção de MMD se o cache já existir. Na ordem inversa o resumo sai com um
+> texto de espera no lugar da tabela.
 
 Demonstração do portão de qualidade e achados:
 
 ```bash
 make validate-bad-batch     # lote com defeitos: verdicto BLOCKED, sai != 0
 make validate-clean-batch   # lote só com alertas: ACCEPTED_WITH_WARNINGS, sai 0
-make recheck-correlation    # recalcula a correlação dos contadores (docs/findings.md)
+make recheck-correlation    # recalcula a correlação — REESCREVE docs/findings.md §4
 make mlflow-ui              # UI do MLflow na porta 5001
 ```
 
-> **macOS:** o XGBoost precisa do OpenMP em tempo de execução, que não vem no
-> wheel. `brew install libomp` antes do `make train`. E a UI do MLflow usa a
-> porta **5001**, não a 5000: no macOS a 5000 é do AirPlay Receiver, que
-> responde à requisição em vez de recusá-la, então o MLflow parece subir e
-> serve um 403 alheio.
+> `make validate-bad-batch` sai com código **diferente de zero por desenho** —
+> o portão bloqueou o lote, que é o comportamento correto. Por isso ele não
+> entra no `make all`. E `make recheck-correlation` **reescreve um arquivo
+> versionado** (a data do achado §4): esperar `git status` sujo depois dele é o
+> normal.
 
 ## Relatórios versionados: gerar não é publicar
 
@@ -126,10 +251,13 @@ restrição que define o que o monitor pode saber e quando. No passo 6 do replay
 existe desempenho medido para os meses 0 a 4 e **nenhum** para os meses 5 e 6 —
 que já têm sinal de drift.
 
-É também o que torna a **janela cega** mensurável: os meses em que uma
-degradação real já acontece e nenhum sinal de nenhum tipo é visível. Medido,
-com atraso 2: `full` 0 meses, `composition_only` n/a, **`stress_only` 2 meses**.
-Ver `docs/findings.md` §13.
+É também o que torna o **lead time** mensurável: a distância, em meses, entre o
+primeiro lote degradado e o primeiro sinal de qualquer tipo. A métrica é
+**assinada** — positivo é aviso antecipado, negativo é cegueira — e medida com
+atraso 2 ela dá `full` **-1**, `composition_only` n/a, `stress_only` **-2**.
+
+**Não há cenário positivo:** no melhor caso o alarme chega um mês depois do
+dano, no pior não chega nunca. Ver [`docs/findings.md`](docs/findings.md) §13.
 
 ### Logs: sem dado pessoal, nunca
 
@@ -148,10 +276,120 @@ está acontecendo agora e o que deveria acordar alguém"; o MLflow responde "o
 que foi decidido, sobre qual dado, por qual versão do modelo". Reconstruir
 qualquer um dos dois a partir do outro é chute.
 
-## Viés, causalidade e Model Card (etapa 4)
+## Causalidade: intervenção, refutação e diagnóstico (etapa 4)
 
-Três documentos fecham a fase de construção. Todos seguem a mesma regra: **toda
-afirmação aponta para um número medido ou é declarada como ausente.**
+**Documento completo: [`docs/causalidade.md`](docs/causalidade.md).**
+
+**Por que isto é uma intervenção e não uma correlação:** nós controlamos o
+processo gerador dos dados, então ligar e desligar um mecanismo é `do(M)` no
+sentido de Pearl — os meses 0 a 6 são gerados quatro vezes com a **mesma
+semente**, e qualquer diferença entre dois braços é o mecanismo, porque não
+sobrou mais nada que pudesse tê-la causado.
+
+Em produção essa tabela não existe: observa-se o total e discute-se de onde ele
+veio. Construí-la agora é o que permite dizer "a degradação é **atribuível** a
+X" em vez de "a degradação **coincide** com X".
+
+### O DAG
+
+```
+Inflação ──┬─► renda nominal ↑ ──────────────┐
+           │                                 ├─► modelo lê risco MENOR
+           ├─► DebtRatio ↓ ──────────────────┘   do(inflação): QUASE INERTE
+           │   (mesma dívida / renda maior)
+           │
+           └─► poder de compra real ↓
+                    └─► utilização do rotativo ↑
+                             └─► atraso 30-59d ↑
+                                      └─► 60-89d ↑   (defasagem)
+                                               └─► 90d+ ↑ ──► inadimplência ↑
+                                                   do(estresse): DOMINA o dano
+
+Aperto de crédito ──► novos perfis (mais jovens, mais alavancados)
+                      do(composição): DOMINA a ordenação, não toca a calibração
+```
+
+### O que a intervenção mediu
+
+| mecanismo | AUC m3 | AUC m6 | gap m3 | gap m6 | inadimpl. m6 |
+|---|---|---|---|---|---|
+| nenhum (mês 0) | 0,8601 | 0,8601 | -0,0027 | -0,0027 | 7,08% |
+| `do(composição)` | 0,8455 | **0,8130** | -0,0001 | **-0,0028** | 21,00% |
+| `do(inflação)` | 0,8563 | **0,8658** | +0,0014 | **-0,0049** | 7,00% |
+| `do(estresse)` | 0,8157 | **0,7917** | -0,0171 | **-0,0337** | 10,04% |
+| os três juntos | 0,8204 | **0,7779** | -0,0173 | **-0,0396** | 24,46% |
+
+- **Composição** degrada a **ordenação** e não toca a calibração (gap -0,0028):
+  os rótulos são reais, clientes mais arriscados de fato inadimplem mais, e as
+  probabilidades continuam certas **para eles**.
+- **Estresse** quebra as duas. É a assinatura do drift de conceito.
+- **Inflação** é quase inerte, e o AUC até sobe.
+
+### A refutação: o DAG acertou a direção e errou a magnitude
+
+**A história desenhada atribuía a degradação silenciosa à inflação nominal** —
+renda sobe, `DebtRatio` cai, o modelo lê risco menor, ninguém percebe. A
+intervenção refutou a segunda metade:
+
+| o DAG previu | `do(inflação)` produziu |
+|---|---|
+| o modelo lê risco **menor** | ✅ **confirmado** — previsto médio 0,0681 → 0,0652 |
+| e isso causa a degradação silenciosa | ❌ **refutado** — são 29 pontos-base, e o AUC não cai |
+| a degradação vem da medição | ❌ vem do **estresse**: **-0,0337 contra -0,0049** |
+
+**O estresse causa quase sete vezes mais dano de calibração que a inflação.** A
+razão é que **o campeão tira apenas 2,15% do seu ganho da renda** (nona de onze
+features; as quatro primeiras concentram 82,07%). Mover 10% uma coluna que
+responde por 2% do modelo desloca a previsão média em 29 pontos-base — que é
+exatamente o que a intervenção mediu.
+
+O DAG está **mantido como foi escrito**, com a refutação ao lado. Reescrevê-lo
+para concordar com a medição transformaria uma previsão falsificada em sabedoria
+retrospectiva.
+
+### A tabela de decisão: assinatura → mecanismo
+
+O pagamento prático. Dada uma degradação observada, o padrão de sinais
+identifica a causa. Lê-se de cima para baixo; a primeira linha que casar é a
+resposta.
+
+| # | drift de feature | gap de calibração | contrato | **mecanismo provável** | evidência | o que fazer | runbook |
+|---|---|---|---|---|---|---|---|
+| 1 | **sim** (PSI > 0,25) | **intacto** (> -0,0056) | ok | **composição da carteira** — mudou *quem* entra, não o que o risco significa | `do(composição)`: PSI máx **0,9327**, gap **-0,0028** | **Não retreinar por isto.** Verificar se a mudança foi intencional (campanha, canal novo, política de crédito) | [`FeatureDrift`](docs/runbooks/FeatureDrift.md) · [`PredictionDrift`](docs/runbooks/PredictionDrift.md) |
+| 2 | **não** (PSI < 0,10) | **rompido** (≤ -0,0056) | ok | **mudança de conceito** — a mesma pessoa passou a inadimplir mais | `do(estresse)`: PSI máx **0,0082**, gap **-0,0337** | **Retreinar é a única saída.** Nenhum ajuste de limiar recupera um score que parou de significar o que diz | [`CalibrationGapBreach`](docs/runbooks/CalibrationGapBreach.md) · [`AUCDrop`](docs/runbooks/AUCDrop.md) |
+| 3 | **sim** | **rompido** | ok | **os dois juntos** — é o cenário `all` | gap **-0,0396**, AUC **0,7779** | Tratar como o caso 2 (o conceito domina) e investigar a composição em paralelo | [`CalibrationGapBreach`](docs/runbooks/CalibrationGapBreach.md) |
+| 4 | **não** | **intacto** | **violado** | **mudança na origem** — esquema, dtype, sentinela, unidade | as **269** linhas com sentinelas 96/98, ausentes da referência | **Não é degradação do modelo.** É o fornecedor do dado. O lote está em quarentena e não foi pontuado | [`ContractBlocked`](docs/runbooks/ContractBlocked.md) |
+| 5 | **não** | **intacto** | ok, lote pequeno | **nada** — o monitor se absteve | `min_batch_size = 1000`, medido no A/A | Não é verde: é **ausência de veredito**. Agregar lotes antes de concluir | [`InsufficientSample`](docs/runbooks/InsufficientSample.md) |
+| 6 | qualquer | **desconhecido** | ok | **indeterminável ainda** — o rótulo não chegou | `label_lag_months = 2` | Nenhuma linha acima pode ser decidida. Registrar e esperar | [`LabelsPending`](docs/runbooks/LabelsPending.md) |
+
+**A linha 6 é a mais frequente na prática.** O gap de calibração exige o
+desfecho, que chega dois meses depois; por dois meses toda degradação cai nessa
+linha e nenhuma das outras pode ser decidida. É o motivo de o *lead time* ser
+**-1** e **-2**, nunca positivo.
+
+### A fronteira do que isto estabelece
+
+Os mecanismos foram **escolhidos por nós** e escritos em
+`src/credit_monitor/simulation/`, com magnitudes que também escolhemos. A
+análise identifica efeitos **dentro do mundo simulado**.
+
+| a análise **estabelece** | a análise **não estabelece** |
+|---|---|
+| que, dado este modelo, mudança de conceito danifica calibração muito mais que inflação nominal | que, numa economia real, conceito domine inflação |
+| que as assinaturas dos três mecanismos são separáveis pelos sinais já coletados | que mecanismos reais produzam assinaturas igualmente limpas |
+| que este campeão é quase insensível a renda, porque dela tira 2,15% do ganho | que um modelo de crédito qualquer o seja |
+
+**A estrutura causal é real; as magnitudes são nossas.** As direções — drift de
+dados degrada ordenação, drift de conceito degrada calibração — decorrem do que
+cada mecanismo é e transferem. Os números não. O que transfere, e é o
+entregável, é o **método**: se as magnitudes reais forem outras, a tabela acima
+se recalibra com uma execução da ablação sobre os mecanismos certos.
+
+## Viés e Model Card (etapa 4)
+
+Com a causalidade acima, são **três** os documentos que fecham a fase de
+construção. Todos seguem a mesma regra: **toda afirmação aponta para um número
+medido ou é declarada como ausente.**
 
 ### [`docs/vies.md`](docs/vies.md) — viés por faixa etária (Art. 6, IX)
 
@@ -227,30 +465,6 @@ ninguém escapou, e diferença é cega para falha de modo comum.
 
 `make bias` reproduz tudo: os três PNG e `reports/fairness/bands.json`, de onde
 sai cada número do documento.
-
-### [`docs/causalidade.md`](docs/causalidade.md) — intervenção, não correlação
-
-Quase toda "análise causal" em produção é uma associação com vocabulário melhor,
-porque falta o passo de desligar o mecanismo e olhar de novo. **Aqui esse passo
-existe:** o processo gerador é nosso, os meses 0 a 6 são gerados quatro vezes com
-a **mesma semente**, e ligar um mecanismo é `do(M)` no sentido de Pearl, com as
-outras vias fechadas por construção.
-
-O documento traz o DAG com **cada aresta rotulada pelo efeito medido**, e mantém
-a refutação em destaque: a história desenhada atribuía a degradação silenciosa à
-inflação nominal, e a intervenção diz que o **estresse domina — -0,0337 contra
--0,0049 de gap**. A razão é que o campeão tira apenas **2,15%** do ganho da
-renda. **O DAG acertou a direção e errou a magnitude**, e está mantido como foi
-escrito, com a refutação ao lado.
-
-O pagamento prático é uma **tabela de decisão** que identifica o mecanismo pela
-assinatura — drift com calibração intacta é composição, calibração rompida sem
-drift é conceito, nem um nem outro com contrato violado é a origem do dado — com
-cada linha ligada ao runbook que já existe.
-
-E a fronteira, dita explicitamente: os mecanismos foram escolhidos por nós, então
-a análise identifica efeitos **dentro do mundo simulado**. A estrutura causal é
-real; as magnitudes são nossas.
 
 ### [`docs/model_card.md`](docs/model_card.md) — o Model Card
 
