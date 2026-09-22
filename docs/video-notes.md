@@ -144,6 +144,35 @@ por pouco — ver "Descartados".
 
 ---
 
+### F. A janela cega — dois meses degradando com o painel verde
+
+> achado #13 · **candidato forte, ainda não promovido**
+
+| | |
+|---|---|
+| **Número** | `stress_only`: degradação começa no mês 3, primeiro sinal no mês 5. **2 meses cego.** |
+| **Na tela** | a saída de `make monitor-all`, a tabela "JANELA CEGA POR CENARIO" |
+| **Comando** | `make monitor-all` (exige `make stack-up`) |
+
+**Falado (~15s):**
+> "O rótulo chega dois meses depois da decisão. Então quando a degradação não
+> mexe em nenhuma feature — e no braço de estresse ela não mexe, PSI máximo de
+> zero vírgula zero zero oito — o único sinal possível é o desfecho, e ele está
+> atrasado. Medi: dois meses em que o modelo está pior e todo painel está
+> verde. Melhorar o detector de drift não muda esse número. Só receber o rótulo
+> mais cedo."
+
+**Por que é forte:** é o achado **A** (o 2x2) convertido em prazo. A afirmação
+"monitorar feature não basta" vira "não basta por dois meses", e prazo é a forma
+que a pergunta toma numa reunião.
+
+**Por que ainda não está promovido:** ele *depende* de **A** para fazer sentido —
+sozinho não se explica. O caminho natural é virar os **últimos 10 segundos de
+A**, não um herói próprio: mostra-se o par de HTML verde/vermelho e fecha-se com
+"e isso dura dois meses". Decidir ao cronometrar a seção Result.
+
+---
+
 ## 3. Tomadas de demonstração
 
 Todas precisam **funcionar no momento da gravação**. Rodar a lista inteira antes.

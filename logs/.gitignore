@@ -1,0 +1,3 @@
+# Os JSONL do pipeline são lidos pelo Alloy e não versionados.
+*.jsonl
+!.gitignore

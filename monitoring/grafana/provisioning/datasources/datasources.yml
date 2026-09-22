@@ -1,0 +1,31 @@
+# Datasources provisionados por arquivo: o Grafana lê este diretório na
+# inicialização, então existem antes de qualquer login e sobrevivem a um
+# `docker compose down` sem depender do volume.
+#
+# UIDs fixos de propósito. As dashboards do dia 10 vão referenciá-los; se o
+# Grafana gerasse uids aleatórias, os painéis subiriam órfãos com
+# "datasource not found".
+
+apiVersion: 1
+
+datasources:
+  - name: Prometheus
+    type: prometheus
+    access: proxy
+    uid: prometheus
+    url: http://prometheus:9090
+    isDefault: true
+    editable: false
+    jsonData:
+      timeInterval: 5s
+      httpMethod: POST
+
+  - name: Loki
+    type: loki
+    access: proxy
+    uid: loki
+    url: http://loki:3100
+    editable: false
+    jsonData:
+      # Sem tenant: auth_enabled está false no Loki desta stack.
+      maxLines: 2000

@@ -1,0 +1,152 @@
+# Stack de observabilidade da etapa 3 — métricas, logs e o que os lê.
+#
+# Quatro serviços: Prometheus (armazena), Pushgateway (recebe de job em lote),
+# Loki (armazena logs) e Grafana (lê os dois). Nenhum deles conhece o pipeline:
+# o pipeline empurra para o Pushgateway e escreve JSONL em logs/, e o Alloy
+# recolhe os logs do disco.
+#
+# Uso:
+#   make stack-up        sobe tudo
+#   make monitor-all     empurra as métricas de todos os lotes
+#   make stack-down      derruba (mantém os volumes)
+#
+# As dashboards e as regras de alerta são o dia 10. Hoje só os datasources,
+# provisionados por arquivo para sobreviverem a um restart.
+#
+# `name:` explícito por uma razão aprendida na fase 3: sem ele o compose deriva
+# o nome do projeto do diretório, e dois checkouts do mesmo repositório em
+# pastas diferentes disputam os mesmos containers de forma destrutiva.
+#
+# Toda imagem fixada em versão exata. `:latest` faria a mesma árvore de código
+# produzir stacks diferentes conforme a data do `up`, e um datasource
+# provisionado é sensível à versão do Grafana que o lê.
+
+name: tc-fase4-observability
+
+services:
+  # ------------------------------------------------------------------------
+  # Pushgateway: a ponte para jobs que TERMINAM.
+  #
+  # O trabalho de drift é um lote: roda, empurra, morre. Não há processo de pé
+  # para o Prometheus raspar, e um endpoint /metrics que só existe por dois
+  # segundos nunca coincidiria com o intervalo de scrape.
+  #
+  # O Pushgateway RECUSA timestamp do cliente — ele marca tudo com o instante
+  # do scrape. Empurrar os meses 0 a 6 em sequência colapsaria a rampa num
+  # único instante, então cada mês vive numa série própria identificada por
+  # rótulo (ver a chave de agrupamento em src/credit_monitor/monitoring).
+  # ------------------------------------------------------------------------
+  pushgateway:
+    image: prom/pushgateway:v1.11.3
+    container_name: tc4-pushgateway
+    ports:
+      - "${PUSHGATEWAY_PORT:-9091}:9091"
+    command:
+      # Persiste entre restarts: sem isso um `docker compose restart` apaga
+      # todos os grupos empurrados e o dashboard fica vazio sem explicação.
+      - --persistence.file=/data/pushgateway.store
+      - --persistence.interval=1m
+    volumes:
+      - pushgateway-data:/data
+    networks: [observability]
+    restart: unless-stopped
+
+  prometheus:
+    image: prom/prometheus:v3.13.3
+    container_name: tc4-prometheus
+    ports:
+      - "${PROMETHEUS_PORT:-9090}:9090"
+    volumes:
+      - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus-data:/prometheus
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.path=/prometheus
+      - --storage.tsdb.retention.time=15d
+      - --web.enable-lifecycle
+    depends_on:
+      - pushgateway
+    networks: [observability]
+    restart: unless-stopped
+
+  # ------------------------------------------------------------------------
+  # Loki em modo monolítico com armazenamento em sistema de arquivos: é uma
+  # stack de avaliação local, não um cluster.
+  # ------------------------------------------------------------------------
+  loki:
+    image: grafana/loki:3.7.8
+    container_name: tc4-loki
+    ports:
+      - "${LOKI_PORT:-3100}:3100"
+    volumes:
+      - ./monitoring/loki-config.yml:/etc/loki/local-config.yaml:ro
+      - loki-data:/loki
+    command: -config.file=/etc/loki/local-config.yaml
+    networks: [observability]
+    restart: unless-stopped
+
+  # ------------------------------------------------------------------------
+  # Alloy, não Promtail.
+  #
+  # O Promtail foi descontinuado pela Grafana em favor do Alloy e está em
+  # manutenção apenas — ainda publica imagem (3.6.11), mas escolher hoje um
+  # componente cujo fim de vida já foi anunciado seria escolher a dívida de
+  # propósito. O Alloy é o caminho suportado e lê a mesma coisa: os JSONL que
+  # o pipeline escreve em logs/.
+  # ------------------------------------------------------------------------
+  alloy:
+    image: grafana/alloy:v1.19.2
+    container_name: tc4-alloy
+    ports:
+      - "${ALLOY_PORT:-12345}:12345"
+    volumes:
+      - ./monitoring/alloy/config.alloy:/etc/alloy/config.alloy:ro
+      # Somente leitura: o coletor de logs não tem motivo para escrever no
+      # diretório de logs do pipeline.
+      - ./logs:/var/log/credit-monitor:ro
+      - alloy-data:/var/lib/alloy/data
+    command:
+      - run
+      - --server.http.listen-addr=0.0.0.0:12345
+      - --storage.path=/var/lib/alloy/data
+      - /etc/alloy/config.alloy
+    depends_on:
+      - loki
+    networks: [observability]
+    restart: unless-stopped
+
+  grafana:
+    image: grafana/grafana:13.1.3
+    container_name: tc4-grafana
+    # 3000, e nunca 5000: no macOS a 5000 é do AirPlay Receiver, que responde
+    # à requisição em vez de recusá-la — o serviço parece subir e serve um 403
+    # alheio. O MLflow, pelo mesmo motivo, usa 5001.
+    ports:
+      - "${GRAFANA_PORT:-3000}:3000"
+    environment:
+      GF_SECURITY_ADMIN_USER: ${GRAFANA_ADMIN_USER:-admin}
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:-admin}
+      GF_AUTH_ANONYMOUS_ENABLED: "true"
+      GF_AUTH_ANONYMOUS_ORG_ROLE: Viewer
+      GF_USERS_DEFAULT_THEME: dark
+      GF_ANALYTICS_REPORTING_ENABLED: "false"
+      GF_ANALYTICS_CHECK_FOR_UPDATES: "false"
+    volumes:
+      - ./monitoring/grafana/provisioning:/etc/grafana/provisioning:ro
+      - grafana-data:/var/lib/grafana
+    depends_on:
+      - prometheus
+      - loki
+    networks: [observability]
+    restart: unless-stopped
+
+networks:
+  observability:
+    driver: bridge
+
+volumes:
+  prometheus-data:
+  pushgateway-data:
+  loki-data:
+  alloy-data:
+  grafana-data:

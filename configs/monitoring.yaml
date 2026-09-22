@@ -68,3 +68,24 @@ mmd_enabled: true
 mmd_n_per_side: 2000
 mmd_permutations: 1000
 mmd_alpha: 0.05
+
+# ------------------------------------------------------------------------
+# Atraso de rótulo
+#
+# Quantos meses o desfecho leva para chegar depois da pontuação. Não é um
+# parâmetro de conveniência: é a restrição que define o que o monitor pode
+# saber e quando.
+#
+# Com atraso 2, no passo 6 do replay existe desempenho medido para os meses 0 a
+# 4 e nenhum para os meses 5 e 6 — que já têm sinal de drift. Essa defasagem é
+# a razão de o lote sair em três arquivos separados desde o dia 6.
+#
+# É também o que torna a "janela cega" mensurável: os meses em que uma
+# degradação real já está acontecendo e nenhum sinal de nenhum tipo é visível.
+# Ver docs/findings.md §13.
+# ------------------------------------------------------------------------
+label_lag_months: 2
+
+# Limiar de gap de calibração a partir do qual a degradação conta como real.
+# Provisório até o dia 10 fixar os limiares de alerta.
+degradation_gap_threshold: -0.015

@@ -5,6 +5,8 @@ custom stattest really is the one running, and that the two report types differ
 in the one way that matters: only one of them can see a label.
 """
 
+from pathlib import Path
+
 import numpy as np
 import pandas as pd
 import pytest
@@ -282,3 +284,66 @@ def test_the_minimum_matches_the_monitoring_config() -> None:
     assert config["psi_warn_threshold"] == drift.WARN_THRESHOLD
     assert config["psi_alert_threshold"] == drift.ALERT_THRESHOLD
     assert config["ks_decides_verdict"] is False
+
+
+# --------------------------------------------------------------------------
+# publish-reports skips id-only differences (day 8, caught by hand)
+# --------------------------------------------------------------------------
+
+
+def test_publish_skips_a_file_that_differs_only_in_generated_ids(
+    tmp_path: Path,
+) -> None:
+    # The day-8 no-op: six files byte-different and content-identical, because
+    # Evidently regenerates the JS variable hash and the UUIDv7 widget ids on
+    # every run. Committing them would have added ~7 MB of pure churn.
+    import sys
+
+    sys.path.insert(0, "scripts")
+    from publish_reports import content_changed
+
+    body = (
+        '<script>var metric_{hash} = {{...}}</script><div id="{uuid}">PSI 0.9420</div>'
+    )
+    source = tmp_path / "new.html"
+    destination = tmp_path / "old.html"
+    source.write_text(
+        body.format(hash="a" * 32, uuid="01a0c625-8513-7d5d-aeca-86ac2e8ceca6"),
+        encoding="utf-8",
+    )
+    destination.write_text(
+        body.format(hash="b" * 32, uuid="01a0c654-359f-7b37-9296-89271a9e2416"),
+        encoding="utf-8",
+    )
+
+    assert source.read_bytes() != destination.read_bytes()
+    assert content_changed(source, destination) is False
+
+
+def test_publish_copies_a_file_whose_numbers_changed(tmp_path: Path) -> None:
+    # The skip must not be a blanket "never copy html".
+    import sys
+
+    sys.path.insert(0, "scripts")
+    from publish_reports import content_changed
+
+    source = tmp_path / "new.html"
+    destination = tmp_path / "old.html"
+    source.write_text(f"<p>metric_{'a' * 32}</p><p>PSI 0.9420</p>", encoding="utf-8")
+    destination.write_text(
+        f"<p>metric_{'a' * 32}</p><p>PSI 0.6486</p>", encoding="utf-8"
+    )
+
+    assert content_changed(source, destination) is True
+
+
+def test_publish_treats_a_missing_destination_as_changed(tmp_path: Path) -> None:
+    import sys
+
+    sys.path.insert(0, "scripts")
+    from publish_reports import content_changed
+
+    source = tmp_path / "new.html"
+    source.write_text("<p>anything</p>", encoding="utf-8")
+
+    assert content_changed(source, tmp_path / "absent.html") is True
