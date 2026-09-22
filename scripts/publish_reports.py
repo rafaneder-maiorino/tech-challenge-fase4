@@ -18,6 +18,7 @@ Run as ``uv run python scripts/publish_reports.py`` (or ``make publish-reports``
 """
 
 import argparse
+import re
 import shutil
 from pathlib import Path
 
@@ -29,6 +30,34 @@ BUILD_DIR = EVIDENTLY_DIR / "_build"
 
 # Published alongside the HTML: the index that links them and the numbers.
 EXTRA_FILES = ("index.html", "summary.md")
+
+# The two id formats Evidently regenerates on every run: a 32-hex hash used as
+# the report's JavaScript variable name, and UUIDv7 widget ids — which embed
+# the generation timestamp, so they change even when nothing else does.
+#
+# Normalising them is what makes "did the report actually change?" answerable.
+# On day 8 a republish produced six files that were byte-different and
+# content-identical; committing them would have added ~7 MB of pure churn. That
+# was caught by hand. This catches it in code, which is the difference between
+# a rule and a habit.
+GENERATED_ID = re.compile(
+    r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}|[0-9a-f]{32}"
+)
+
+
+def normalized(path: Path) -> str:
+    """File contents with every generated id replaced by a fixed token."""
+    return GENERATED_ID.sub("<id>", path.read_text(encoding="utf-8", errors="ignore"))
+
+
+def content_changed(source: Path, destination: Path) -> bool:
+    """Whether the two files differ in anything but generated ids.
+
+    A missing destination counts as changed: the first publish has to happen.
+    """
+    if not destination.exists():
+        return True
+    return normalized(source) != normalized(destination)
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -59,17 +88,34 @@ def main() -> None:
     print()
     print("PUBLICANDO O CONJUNTO CURADO")
     print("============================")
-    total = 0.0
+    copied, skipped, total = [], [], 0.0
     for name in names:
         source, destination = args.build_dir / name, args.out_dir / name
+        if not content_changed(source, destination):
+            skipped.append(name)
+            print(f"  {name:42} {'ignorado':>10}  conteúdo idêntico (só ids)")
+            continue
         shutil.copy2(source, destination)
         size = destination.stat().st_size / 1_048_576
         total += size
-        print(f"  {name:42} {size:7.2f} MB")
-    print(f"  {'TOTAL':42} {total:7.2f} MB")
+        copied.append(name)
+        print(f"  {name:42} {size:7.2f} MB  copiado")
+
     print()
-    print("Os arquivos acima são versionados. Confira o diff antes de commitar:")
-    print("  git status reports/evidently/")
+    if skipped:
+        print(
+            f"{len(skipped)} arquivo(s) ignorado(s): idênticos aos versionados "
+            "depois de normalizar o nome da variável JavaScript e os ids de "
+            "widget (UUIDv7, que embutem o instante de geração). Copiá-los "
+            "produziria um diff de megabytes com zero informação nova."
+        )
+    if copied:
+        print(f"{len(copied)} arquivo(s) copiado(s), {total:.2f} MB no total.")
+        print()
+        print("Confira o diff antes de commitar:")
+        print("  git status reports/evidently/")
+    else:
+        print("Nada a publicar: o conjunto versionado já está atualizado.")
     print()
 
 
