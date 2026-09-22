@@ -16,6 +16,7 @@ the same row and not enough to reconstruct anything about the person.
 import hashlib
 import json
 import logging
+import os
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Final
@@ -25,11 +26,17 @@ from credit_monitor.logging_config import JsonFormatter
 
 LOG_DIR: Final[Path] = PROJECT_ROOT / "logs"
 
-# Fixed salt: row hashes have to be comparable across runs for a Loki query to
-# follow one row through the pipeline. It is not a secret and is not protecting
-# against a determined attacker with the dataset — it is protecting against the
-# far likelier accident of readable personal data sitting in a log index.
-ROW_ID_SALT: Final[str] = "credit-monitor-stage-3"
+# The salt has to be stable across runs, or a Loki query cannot follow one row
+# through the pipeline. The default below is committed and therefore **public**:
+# it protects against the likely accident of readable personal data sitting in a
+# log index, and not at all against someone holding this repository. With a row
+# id space of 150,000 the mapping inverts by enumeration in under a second.
+#
+# A deployment that handles real people overrides it via the environment, so the
+# salt lives in the secret store and rotates without a code change. See
+# `docs/governanca.md` §5 for what the hash is and is not under the LGPD.
+ROW_SALT_ENV: Final[str] = "CREDIT_MONITOR_ROW_SALT"
+DEFAULT_ROW_ID_SALT: Final[str] = "credit-monitor-stage-3"
 
 # Fields that must never appear in a log record, checked in tests. These are
 # the feature columns; a stage that wanted to log one is a stage that should be
@@ -50,13 +57,23 @@ FORBIDDEN_FIELDS: Final[frozenset[str]] = frozenset(
 )
 
 
+def row_salt() -> str:
+    """The salt in force, from the environment or the committed default.
+
+    Read per call rather than at import: a process that sets the variable after
+    importing this module would otherwise keep hashing with the public default
+    and never know it.
+    """
+    return os.environ.get(ROW_SALT_ENV, DEFAULT_ROW_ID_SALT)
+
+
 def hash_row_id(row_id: int | str) -> str:
     """Salted, truncated SHA-256 of a row id.
 
     Sixteen hex characters: enough that a collision across a 44,000-row batch
     is not a practical concern, short enough to read in a log line.
     """
-    digest = hashlib.sha256(f"{ROW_ID_SALT}:{row_id}".encode()).hexdigest()
+    digest = hashlib.sha256(f"{row_salt()}:{row_id}".encode()).hexdigest()
     return digest[:16]
 
 
