@@ -67,6 +67,10 @@
 !/reports/fairness/odds_by_band.png
 !/reports/fairness/bands.json
 
+# Exceção: o piso de ruído das cinco sementes. É o número contra o qual a margem
+# do campeão é lida no Model Card, e regenerá-lo custa cinco treinos.
+!/reports/seed_noise.json
+
 # Material de referência do curso: PDFs das aulas e o enunciado.
 # Nunca versionar — é conteúdo de terceiros.
 docs/_reference/

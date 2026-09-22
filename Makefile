@@ -6,7 +6,7 @@
 .PHONY: help install download inspect lint test \
         validate-bad-batch validate-clean-batch \
         prepare train recheck-correlation mlflow-ui simulate drift-reports publish-reports aa-test mmd \
-        stack-up stack-down stack-logs monitor-replay monitor-all alerts-test dashboards bias
+        stack-up stack-down stack-logs monitor-replay monitor-all alerts-test dashboards bias seed-noise
 
 # Default target: `make` with no arguments lists what exists.
 help:
@@ -31,6 +31,7 @@ help:
 	@echo "  make monitor-replay - empurra mês a mês com pausa, para assistir ao painel"
 	@echo "  make alerts-test - valida e testa as regras de alerta (promtool)"
 	@echo "  make bias      - mede justiça por faixa etária e gera os gráficos da etapa 4"
+	@echo "  make seed-noise - mede o piso de ruído de AUC e KS em cinco sementes"
 	@echo "  make lint      - roda o ruff (lint + formatação)"
 	@echo "  make test      - roda a suíte de testes (pytest)"
 
@@ -128,6 +129,12 @@ simulate:
 # medida seria um corte escolhido sabendo a resposta.
 bias:
 	uv run python scripts/bias_analysis.py
+
+# Retreina cinco vezes para medir o ruído do procedimento. NÃO toca no MLflow
+# nem no registry: o campeão continua a versão 1 com o alias onde está. O que
+# interessa é a dispersão, não um modelo novo.
+seed-noise:
+	uv run python scripts/seed_noise.py
 
 # Depende de `make simulate` (para os lotes) e de `make train` (para o campeão).
 #
