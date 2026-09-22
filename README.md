@@ -152,12 +152,19 @@ qualquer um dos dois a partir do outro é chute.
 
 **Documento completo: [`docs/governanca.md`](docs/governanca.md).**
 
-O projeto usa um dataset **público e já anonimizado** (*Give-Me-Some-Credit*,
-OpenML id 45577): não há dado pessoal real e não há titular. Na prática a LGPD
-não incide sobre este tratamento, e um documento de governança que fingisse o
-contrário estaria inventando conformidade. O que `docs/governanca.md` faz é
-descrever o sistema **como se ele recebesse candidatos reais amanhã**, com duas
-camadas que nunca se misturam:
+O projeto usa o *Give-Me-Some-Credit* (OpenML id 45577), **já anonimizado na
+origem e sem coluna de identificador**. Não havendo pessoa natural identificada
+nem identificável, não há dado pessoal — e o **Art. 12** põe o tratamento fora
+da LGPD. É esse o motivo, e é o único: **não** é por o dado ser público (o Art.
+7 §3 é expresso em dizer que publicidade não remove proteção) nem por o projeto
+ser acadêmico (o Art. 4, II, *b* é uma porta estreita e não é esta). A diferença
+importa porque as duas justificativas erradas não sobreviveriam à mudança de
+contexto: no dia em que este mesmo pipeline receber a proposta de uma pessoa
+real, o tratamento vira dado pessoal sem que uma linha de código mude.
+
+Por isso `docs/governanca.md` descreve **o regime que se aplicaria ao mesmo
+pipeline rodando sobre candidatos reais**, com duas camadas que nunca se
+misturam:
 
 - **[IMPLEMENTADO]** — o que o repositório faz hoje, sempre com arquivo, função,
   configuração ou teste que se pode abrir e conferir.
@@ -178,11 +185,15 @@ O que está lá:
 
 Três pontos que o documento **argumenta** em vez de afirmar:
 
-1. **A quarentena é a tensão mais aguda.** Linhas rejeitadas são guardadas
-   inteiras, com o valor que causou a rejeição — o oposto da minimização, de
-   propósito. Sem essa evidência ninguém consegue distinguir "a pessoa mandou
-   dado errado" de "o nosso contrato está errado", e a rejeição deixa de ser
-   contestável. A exceção paga por si com a retenção mais curta da tabela.
+1. **A quarentena é a tensão mais aguda — e foi medida, não suposta.**
+   `rows.parquet` guarda **12 linhas × as 11 colunas**, incluindo a combinação
+   quase-identificadora inteira e o rótulo; `rejections.jsonl` traz o valor em
+   claro em **8 dos 13** registros (`age: 12`, `MonthlyIncome: -1500.0`). É o
+   oposto da minimização, de propósito: sem essa evidência ninguém distingue "a
+   pessoa mandou dado errado" de "o nosso contrato está errado", e a rejeição
+   deixa de ser contestável. É também o **único** ponto do pipeline que escreve
+   valor de feature em arquivo de texto — os logs levantam exceção se alguém
+   tentar. A exceção paga por si com a retenção mais curta da tabela.
 2. **Monitoramento precisa de história.** Uma referência apagada não é
    substituível, e o sistema não acusa erro — passa a medir drift contra uma
    base nova e reporta que está tudo bem. A reconciliação é guardar a

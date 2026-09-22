@@ -6,35 +6,78 @@
 
 ## 0. O escopo deste documento, antes de qualquer afirmação
 
-**Este projeto não trata dado pessoal real.** O dataset é o *Give-Me-Some-Credit*
-(OpenML id 45577), público, já anonimizado na origem, distribuído para pesquisa e
-competição. Não há titular de dados por trás de nenhuma linha: não há nome, não
-há documento, não há contato, não há sequer um identificador. As 150.000 linhas
-são casos de crédito sem pessoa atrás deles.
+### 0.1 Por que a LGPD não incide aqui — e por quais motivos ela **não** deixa de incidir
 
-Isso tem uma consequência que precisa ficar dita logo: **na prática, a LGPD não
-incide sobre o tratamento que este repositório faz.** Um documento de governança
-que ignorasse isso e descrevesse com ar solene o "encarregado de dados" de um
-projeto de faculdade estaria inventando conformidade.
+A LGPD se aplica ao tratamento de **dado pessoal**, definido no Art. 5, I como
+"informação relacionada a pessoa natural identificada ou identificável". O Art.
+12 *caput* fecha o raciocínio na outra ponta: **dados anonimizados não são
+considerados dados pessoais** para os fins da lei, desde que o processo de
+anonimização não possa ser revertido com esforço razoável.
 
-O que este documento faz, então, é outra coisa: descrever o sistema **como se ele
-recebesse candidatos reais amanhã**, separando com rigor duas camadas.
+É exatamente esse o caso deste repositório. O *Give-Me-Some-Credit* (OpenML id
+45577) chega **já anonimizado na origem**: não há nome, documento, contato, e a
+inspeção do dia 1 confirmou que **não há sequer coluna de identificador**
+(`reports/inspection.md` §7). As 11 colunas são atributos de um caso de crédito,
+e não há chave — nem direta, nem custodiada em outro lugar — que ligue uma linha
+a uma pessoa natural. Não existindo titular identificado nem identificável, não
+existe dado pessoal; não existindo dado pessoal, o Art. 12 põe o tratamento fora
+do alcance da lei.
+
+Esse é o único motivo. Vale dizer explicitamente **quais motivos não valem**,
+porque são os dois atalhos mais comuns e os dois são errados:
+
+- **Não é porque o dado é público.** O Art. 7, §3 é expresso: o tratamento de
+  dados tornados manifestamente públicos pelo titular **preserva** os direitos
+  do titular e os princípios da lei. Publicidade não apaga proteção. Um dataset
+  de nomes e CPFs raspado de um diário oficial continua sendo dado pessoal, e
+  tratá-lo continua exigindo base legal.
+- **Não é porque o projeto é acadêmico.** O Art. 4, II, *b* dispensa a aplicação
+  da lei para tratamento realizado para fins **exclusivamente** acadêmicos, e
+  ainda assim remete aos Arts. 7 e 11 para as hipóteses de tratamento. É uma
+  porta estreita, condicionada à exclusividade da finalidade, e não é a porta
+  por onde este projeto passa. O que o coloca fora da lei é a ausência de
+  titular, não a finalidade de quem o construiu.
+
+A diferença importa porque as duas justificativas erradas **não sobrevivem à
+mudança de contexto** e a certa não precisa: se amanhã este mesmo pipeline
+receber uma proposta de crédito de uma pessoa real, o tratamento passa a ser de
+dado pessoal no mesmo instante, sem que uma linha de código mude. Foi o dado que
+mudou, não o sistema.
+
+### 0.2 A consequência: por que tudo aqui é dito em duas camadas
+
+Se a lei não incide sobre o repositório como ele está, um documento de
+governança tem duas saídas. A primeira é declarar conformidade com obrigações
+que ninguém tem — descrever com ar solene o encarregado de dados e o canal do
+titular de um trabalho de pós-graduação — e isso é inventar conformidade. A
+segunda, que é a adotada aqui, é descrever **o regime que se aplicaria ao mesmo
+pipeline rodando sobre candidatos reais**, e marcar em cada afirmação de que
+lado da fronteira ela está.
+
+Daí as duas camadas, que atravessam o documento inteiro:
 
 | rótulo | significado |
 |---|---|
 | **[IMPLEMENTADO]** | o que este repositório faz **hoje**, com arquivo, função, configuração ou teste que se pode abrir e conferir |
-| **[PRESCRITO]** | o que um sistema em produção com titulares reais **precisaria além disso**, e que aqui **não existe** |
+| **[PRESCRITO]** | o que o mesmo sistema precisaria **além disso** no dia em que recebesse dado pessoal real, e que aqui **não existe** |
 
-As duas camadas nunca se misturam numa mesma frase. Onde o projeto não faz algo,
-está escrito que não faz.
+As duas nunca se misturam numa mesma frase. Onde o projeto não faz algo, está
+escrito que não faz.
 
-Um aviso sobre o peso relativo das duas: a camada [PRESCRITO] é grande. Isso é o
-resultado esperado, não um defeito escondido — a maior parte da conformidade com
-a LGPD é processo organizacional (encarregado, canal do titular, contrato com
-operador, resposta a incidente), e processo organizacional não mora num
-repositório de código. O que mora aqui é a parte técnica, e é sobre ela que as
-afirmações [IMPLEMENTADO] deste documento respondem.
+Um aviso sobre o peso relativo: a camada [PRESCRITO] é maior. Isso é o resultado
+esperado, não um defeito escondido — a maior parte da conformidade com a LGPD é
+processo organizacional (encarregado, canal do titular, contrato com operador,
+resposta a incidente), e processo organizacional não mora num repositório de
+código. O que mora aqui é a parte técnica, e é sobre ela que as afirmações
+[IMPLEMENTADO] respondem.
 
+Uma observação sobre o que a fronteira **não** protege. O fato de o tratamento
+estar fora da lei hoje não torna as escolhas de desenho indiferentes: a
+quarentena guarda linhas inteiras (§3.1), a referência guarda linhas em vez de
+estatísticas (§3.2), o sal do hash é público (§5). Nenhuma dessas é uma
+infração, porque não há dado pessoal para infringir — e todas as três seriam
+exposições reais no primeiro dia em que houvesse. É por isso que estão descritas
+em detalhe, com medição, e não apenas mencionadas.
 ---
 
 ## 1. Inventário de dados
@@ -240,8 +283,64 @@ vai para `rejections.jsonl` no campo `observed_value`
 ([`pipeline/ingest.py`](../src/credit_monitor/pipeline/ingest.py),
 `quarantine_rows`).
 
-Isso é dado pessoal preservado exatamente onde a minimização pediria descarte. A
-justificativa é direta e vale ser dita em vez de escondida:
+Isso é dado pessoal preservado exatamente onde a minimização pediria descarte.
+
+### O que está realmente escrito lá — conferido, não suposto
+
+Esta seção é o argumento mais delicado do documento, então o conteúdo da
+quarentena foi **aberto e medido**, não deduzido do código. Lote
+`data/quarantine/batch_20260920/`:
+
+**`rows.parquet` — 12 linhas × 11 colunas.** Todas as colunas, sem exceção:
+
+```
+SeriousDlqin2yrs · RevolvingUtilizationOfUnsecuredLines · age ·
+NumberOfTime30-59DaysPastDueNotWorse · DebtRatio · MonthlyIncome ·
+NumberOfOpenCreditLinesAndLoans · NumberOfTimes90DaysLate ·
+NumberRealEstateLoansOrLines · NumberOfTime60-89DaysPastDueNotWorse ·
+NumberOfDependents
+```
+
+Isso inclui a combinação quase-identificadora inteira da §1.3 — `age`,
+`MonthlyIncome`, `NumberOfDependents` e `NumberOfOpenCreditLinesAndLoans`
+juntas, com os valores exatos — **e também o rótulo** `SeriousDlqin2yrs`, que é
+o desfecho financeiro da pessoa. O índice `batch_row_index` é preservado e
+nomeado, porque é a chave de junção de volta para o JSONL.
+
+**`rejections.jsonl` — 13 registros, e 8 deles carregam um valor de feature em
+claro** no campo `observed_value`:
+
+| regra | coluna | `observed_value` | registros |
+|---|---|---|---|
+| `age_range` | `age` | `12` | 3 |
+| `monthly_income_non_negative` | `MonthlyIncome` | `-1500.0` | 2 |
+| `delinquency_sentinels` | `NumberOfTimes90DaysLate` | `98` | 2 |
+| `schema_columns_and_dtypes` | `age` | `"int64"` | 1 (dtype, não valor) |
+| `nested_missingness` | — | `null` | 5 |
+
+Os 5 registros de `nested_missingness` não trazem coluna nem valor — a regra é
+de linha e não aponta para um campo — mas as 5 linhas correspondentes estão
+**inteiras** no parquet. O parquet é a exposição abrangente; o JSONL é a
+pontual.
+
+**Este é o único lugar do pipeline onde um valor de feature em claro é escrito
+num arquivo de texto linha a linha.** A assimetria com os logs é total e é
+deliberada: `logs/*.jsonl` tem `FORBIDDEN_FIELDS` e levanta exceção ao receber
+`MonthlyIncome`; `data/quarantine/*/rejections.jsonl` grava `MonthlyIncome:
+-1500.0` de propósito. Os dois arquivos têm o mesmo formato e o mesmo nome de
+extensão, e um deles seria encaminhado ao Loki se alguém apontasse o coletor
+para o diretório errado.
+
+A contenção que existe hoje é o ponto de montagem: o Alloy monta **apenas**
+`./logs`, somente leitura
+([`docker-compose.monitoring.yml`](../docker-compose.monitoring.yml), serviço
+`alloy`), e o `local.file_match` do
+[`config.alloy`](../monitoring/alloy/config.alloy) só casa
+`/var/log/credit-monitor/*.jsonl`. A quarentena não é coletada nem indexada.
+É uma contenção por configuração, não por código — um volume a mais no compose
+bastaria para desfazê-la.
+
+### Por que a exceção se justifica mesmo assim
 
 **A alternativa é pior para o titular.** Uma linha rejeitada é uma pessoa cuja
 proposta não foi avaliada. Se o sistema descarta a linha e guarda só a contagem,
@@ -533,23 +632,30 @@ variável está ausente, que é o caso deste repositório de avaliação. Fixado
 
 Para não obrigar ninguém a reler o documento inteiro atrás dos avisos.
 
-1. **Dataset público e já anonimizado.** Não há titular; a LGPD não incide na
-   prática sobre este tratamento. Tudo em [PRESCRITO] é hipótese de trabalho.
-2. **Sem explicação por decisão individual.** SHAP ou equivalente não está
+1. **Dataset já anonimizado, sem titular identificável.** Por isso, e **só**
+   por isso, o Art. 12 põe este tratamento fora da LGPD — não por ser público
+   (Art. 7 §3) nem por ser acadêmico (Art. 4, II, *b*). Tudo em [PRESCRITO] é o
+   regime que valeria no primeiro dia com dado real.
+2. **A quarentena guarda a linha inteira e o valor em claro.** Medido: 12 linhas
+   × 11 colunas em `rows.parquet`, e 8 de 13 registros do `rejections.jsonl`
+   com `observed_value` preenchido (`age: 12`, `MonthlyIncome: -1500.0`). É o
+   único ponto do pipeline que escreve valor de feature em arquivo de texto, e
+   é deliberado (§3.1).
+3. **Sem explicação por decisão individual.** SHAP ou equivalente não está
    implementado; o Art. 20 §1 pede exatamente isso.
-3. **Sem revisão humana.** Não há processo, prazo, canal ou autoridade para
+4. **Sem revisão humana.** Não há processo, prazo, canal ou autoridade para
    reverter uma decisão automatizada.
-4. **Retenção é documento, não mecanismo.** Só os 15 dias do Prometheus estão
+5. **Retenção é documento, não mecanismo.** Só os 15 dias do Prometheus estão
    aplicados. Quarentena, lotes, predições, rótulos e Loki não têm expurgo.
-5. **Loki sem retenção e sem autenticação.** `auth_enabled: false` e nenhum
+6. **Loki sem retenção e sem autenticação.** `auth_enabled: false` e nenhum
    `retention_period`: logs indefinidos numa stack aberta.
-6. **Sem cifragem em repouso, sem TLS, sem controle de acesso.** Stack local de
+7. **Sem cifragem em repouso, sem TLS, sem controle de acesso.** Stack local de
    avaliação, HTTP puro, sem autenticação em nenhum componente.
-7. **Referência guarda linhas, não só estatísticas.** É a maior concentração de
+8. **Referência guarda linhas, não só estatísticas.** É a maior concentração de
    dado pessoal de longa duração do desenho, e §3.2 diz como resolver.
-8. **Sal padrão é público.** Só a variável de ambiente move isso, e ela não está
+9. **Sal padrão é público.** Só a variável de ambiente move isso, e ela não está
    definida neste repositório — por escolha, já que aqui não há o que proteger.
-9. **Viés não medido.** Etapa 5.
+10. **Viés não medido.** Etapa 5.
 
 ---
 
@@ -559,7 +665,9 @@ Para não obrigar ninguém a reler o documento inteiro atrás dos avisos.
 |---|---|
 | ausência de identificador, as 11 colunas | [`reports/inspection.md`](../reports/inspection.md) §7 |
 | contrato, severidade, regras | [`contracts/`](../src/credit_monitor/contracts/) |
-| quarentena e valor observado | [`pipeline/ingest.py`](../src/credit_monitor/pipeline/ingest.py) |
+| quarentena: código que grava | [`pipeline/ingest.py`](../src/credit_monitor/pipeline/ingest.py), `quarantine_rows` |
+| quarentena: o que está gravado, medido | `data/quarantine/batch_20260920/` — 12×11 no parquet, 8 de 13 com `observed_value` (§3.1) |
+| por que a quarentena não chega ao Loki | [`monitoring/alloy/config.alloy`](../monitoring/alloy/config.alloy) · montagem do serviço `alloy` no compose |
 | logs sem dado pessoal, hash, sal | [`monitoring/logs.py`](../src/credit_monitor/monitoring/logs.py) |
 | testes que fixam o comportamento dos logs | [`tests/test_monitoring.py`](../tests/test_monitoring.py) |
 | rastro de auditoria e campeão | [`monitoring/run.py`](../src/credit_monitor/monitoring/run.py) · [`models/train.py`](../src/credit_monitor/models/train.py) |
