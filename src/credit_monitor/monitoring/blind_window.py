@@ -30,11 +30,32 @@ class BlindWindow:
     blind_months: tuple[int, ...]
     first_degraded_month: int | None
     first_signal_month: int | None
+    first_drift_alarm_month: int | None
 
     @property
     def months_blind(self) -> int:
         """How many months pass with degradation present and nothing visible."""
         return len(self.blind_months)
+
+    @property
+    def lead_time_months(self) -> int | None:
+        """Signed: ``first_degraded - first_signal``.
+
+        **Positive is early warning, negative is blindness.** The unsigned
+        count was clipped at zero and therefore hid half the story: it said
+        "0 months blind" both for a monitor that warned exactly on time and for
+        one that warned a month ahead, which are not the same monitor.
+
+        The sign is the finding. The *same* monitor, on the *same* data, warns
+        early or late depending on which mechanism is at work — early when the
+        degradation drags features with it, late when it does not.
+
+        ``None`` when nothing ever degraded: there is no lead time to a warning
+        about something that did not happen.
+        """
+        if self.first_degraded_month is None or self.first_signal_month is None:
+            return None
+        return self.first_degraded_month - self.first_signal_month
 
     def to_dict(self) -> dict[str, Any]:
         """Render for the report and the findings table."""
@@ -88,11 +109,21 @@ def compute(
             blind.append(month)
 
     first_degraded = degraded[0] if degraded else None
+
+    # The earliest drift alarm of the whole run, degraded month or not. This
+    # is the correction that makes the lead time signed: an alarm that fires
+    # in month 2 for a degradation that starts in month 3 is one month of
+    # warning, and restricting the search to degraded months threw that away.
+    alarm_months = sorted(
+        month for month, firing in drift_alarm_by_month.items() if firing
+    )
+    first_drift_alarm = alarm_months[0] if alarm_months else None
+
     first_signal: int | None = None
     if first_degraded is not None:
-        drift_signals = [m for m in degraded if drift_alarm_by_month.get(m, False)]
-        candidates = [m for m in drift_signals if m >= first_degraded]
-        candidates.append(first_degraded + label_lag_months)
+        candidates = [first_degraded + label_lag_months]
+        if first_drift_alarm is not None:
+            candidates.append(first_drift_alarm)
         first_signal = min(candidates)
 
     return BlindWindow(
@@ -102,4 +133,5 @@ def compute(
         blind_months=tuple(blind),
         first_degraded_month=first_degraded,
         first_signal_month=first_signal,
+        first_drift_alarm_month=first_drift_alarm,
     )
