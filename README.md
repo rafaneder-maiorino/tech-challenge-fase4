@@ -148,6 +148,66 @@ está acontecendo agora e o que deveria acordar alguém"; o MLflow responde "o
 que foi decidido, sobre qual dado, por qual versão do modelo". Reconstruir
 qualquer um dos dois a partir do outro é chute.
 
+## Governança, privacidade e LGPD (etapa 4)
+
+**Documento completo: [`docs/governanca.md`](docs/governanca.md).**
+
+O projeto usa o *Give-Me-Some-Credit* (OpenML id 45577), **já anonimizado na
+origem e sem coluna de identificador**. Não havendo pessoa natural identificada
+nem identificável, não há dado pessoal — e o **Art. 12** põe o tratamento fora
+da LGPD. É esse o motivo, e é o único: **não** é por o dado ser público (o Art.
+7 §3 é expresso em dizer que publicidade não remove proteção) nem por o projeto
+ser acadêmico (o Art. 4, II, *b* é uma porta estreita e não é esta). A diferença
+importa porque as duas justificativas erradas não sobreviveriam à mudança de
+contexto: no dia em que este mesmo pipeline receber a proposta de uma pessoa
+real, o tratamento vira dado pessoal sem que uma linha de código mude.
+
+Por isso `docs/governanca.md` descreve **o regime que se aplicaria ao mesmo
+pipeline rodando sobre candidatos reais**, com duas camadas que nunca se
+misturam:
+
+- **[IMPLEMENTADO]** — o que o repositório faz hoje, sempre com arquivo, função,
+  configuração ou teste que se pode abrir e conferir.
+- **[PRESCRITO]** — o que um sistema com titulares reais precisaria além disso,
+  e que aqui **não existe**.
+
+O que está lá:
+
+| seção | conteúdo |
+|---|---|
+| §1 | inventário das 11 colunas — nenhuma é sensível pelo Art. 11, **nenhuma é identificador** (verificado na inspeção do dia 1), e `age` + renda + dependentes + linhas abertas formam uma combinação quase-identificadora |
+| §2 | base legal: **proteção ao crédito (Art. 7, X)**, e por que consentimento é o pior encaixe — não é livre quando dá acesso a crédito, e é revogável, o que esvaziaria a própria referência de drift |
+| §2.2 | **Art. 20** (revisão e critérios) ligado ao que já existe: registry com alias `champion`, `dataset_sha256` por run, participação no ganho por feature, probabilidade **calibrada** |
+| §3 | retenção por artefato, com a razão de cada prazo |
+| §4 | os sete princípios de *Privacy by Design*, cada um apontando para um caminho de arquivo |
+| §5 | o hash salgado dos logs: **pseudonimização (Art. 13), não anonimização** |
+| §6 | as limitações, reunidas |
+
+Três pontos que o documento **argumenta** em vez de afirmar:
+
+1. **A quarentena é a tensão mais aguda — e foi medida, não suposta.**
+   `rows.parquet` guarda **12 linhas × as 11 colunas**, incluindo a combinação
+   quase-identificadora inteira e o rótulo; `rejections.jsonl` traz o valor em
+   claro em **8 dos 13** registros (`age: 12`, `MonthlyIncome: -1500.0`). É o
+   oposto da minimização, de propósito: sem essa evidência ninguém distingue "a
+   pessoa mandou dado errado" de "o nosso contrato está errado", e a rejeição
+   deixa de ser contestável. É também o **único** ponto do pipeline que escreve
+   valor de feature em arquivo de texto — os logs levantam exceção se alguém
+   tentar. A exceção paga por si com a retenção mais curta da tabela.
+2. **Monitoramento precisa de história.** Uma referência apagada não é
+   substituível, e o sistema não acusa erro — passa a medir drift contra uma
+   base nova e reporta que está tudo bem. A reconciliação é guardar a
+   **estatística** (bordas de bin, quantis, distribuições nulas) e deixar as
+   **linhas** seguirem o prazo do dado operacional.
+3. **Calibrar é uma questão de justiça antes de ser técnica.** Reponderar a
+   classe infla as probabilidades ~14x sem mexer no AUC nem no KS: a pessoa é
+   recusada por um número que não significa o que diz, e é justamente esse
+   número que o Art. 20 §1 lhe apresentaria como "o critério".
+
+A camada [PRESCRITO] é grande de propósito. A maior parte da conformidade com a
+LGPD é processo organizacional — encarregado, canal do titular, revisão humana,
+resposta a incidente — e isso não mora num repositório de código.
+
 ## Notas de contribuição
 
 **Todo dia termina atualizando [`docs/video-notes.md`](docs/video-notes.md)** com

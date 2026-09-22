@@ -26,6 +26,7 @@ from credit_monitor.monitoring import metrics as m
 from credit_monitor.monitoring.config import MonitoringConfig
 from credit_monitor.monitoring.logs import (
     FORBIDDEN_FIELDS,
+    ROW_SALT_ENV,
     PipelineLogger,
     hash_row_id,
 )
@@ -290,6 +291,21 @@ def test_row_identity_travels_as_a_hash(tmp_path: Path) -> None:
     # Stable across runs, so a Loki query can follow one row; and not the id.
     assert hash_row_id(0) == hash_row_id(0)
     assert hash_row_id(0) != "0"
+
+
+def test_the_salt_is_overridable_from_the_environment(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # Pseudonymisation under LGPD Art. 13, not anonymisation: the committed
+    # default is public, so a real deployment has to be able to supply its own
+    # salt without touching the code. Same row id, different salt, different
+    # hash is the whole property.
+    default = hash_row_id(42)
+
+    monkeypatch.setenv(ROW_SALT_ENV, "outro-sal-de-producao")
+
+    assert hash_row_id(42) != default
+    assert hash_row_id(42) == hash_row_id(42)
 
 
 def test_logs_carry_the_loki_filter_labels(tmp_path: Path) -> None:
