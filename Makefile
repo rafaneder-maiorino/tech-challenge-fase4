@@ -6,7 +6,7 @@
 .PHONY: help install download inspect lint test \
         validate-bad-batch validate-clean-batch \
         prepare train recheck-correlation mlflow-ui simulate drift-reports publish-reports aa-test mmd \
-        stack-up stack-down stack-logs monitor-replay monitor-all alerts-test dashboards
+        stack-up stack-down stack-logs monitor-replay monitor-all alerts-test dashboards bias
 
 # Default target: `make` with no arguments lists what exists.
 help:
@@ -30,6 +30,7 @@ help:
 	@echo "  make monitor-all    - empurra as métricas de todos os lotes de uma vez"
 	@echo "  make monitor-replay - empurra mês a mês com pausa, para assistir ao painel"
 	@echo "  make alerts-test - valida e testa as regras de alerta (promtool)"
+	@echo "  make bias      - mede justiça por faixa etária e gera os gráficos da etapa 4"
 	@echo "  make lint      - roda o ruff (lint + formatação)"
 	@echo "  make test      - roda a suíte de testes (pytest)"
 
@@ -120,6 +121,13 @@ mlflow-ui:
 # `make prepare` (para o holdout) e de `make train` (para o alias champion).
 simulate:
 	uv run python scripts/simulate_production.py
+
+# Depende de `make simulate` (para os lotes) e de `make train` (para o campeão).
+# O limiar de operação NÃO é escolhido aqui: vem do KS do campeão, ajustado na
+# partição de validação. Um corte escolhido na amostra em que a justiça é
+# medida seria um corte escolhido sabendo a resposta.
+bias:
+	uv run python scripts/bias_analysis.py
 
 # Depende de `make simulate` (para os lotes) e de `make train` (para o campeão).
 #
