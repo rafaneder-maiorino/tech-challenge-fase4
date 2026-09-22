@@ -1,0 +1,19 @@
+# Dashboards provisionadas por arquivo, como os datasources: existem antes de
+# qualquer login e sobrevivem a um `docker compose down`. Uma dashboard montada
+# a mão na UI é uma dashboard que ninguém revisa e que some com o volume.
+
+apiVersion: 1
+
+providers:
+  - name: credit-monitor
+    orgId: 1
+    folder: Credit Monitor
+    type: file
+    disableDeletion: false
+    # Sem atualização automática: o arquivo é a fonte da verdade, e permitir
+    # edição na UI criaria duas.
+    allowUiUpdates: false
+    updateIntervalSeconds: 30
+    options:
+      path: /var/lib/grafana/dashboards
+      foldersFromFilesStructure: false
