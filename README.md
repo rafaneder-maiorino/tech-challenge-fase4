@@ -97,13 +97,39 @@ O Prometheus guarda float64, então o veredito é um número:
 | `1` | alerta — alguma feature em [0,10; 0,25) |
 | `2` | crítico — alguma feature em 0,25 ou acima |
 | `-1` | **amostra insuficiente** — lote abaixo de `min_batch_size` |
+| `-2` | **bloqueado** — o contrato recusou o lote; nenhum drift foi calculado |
 
-`-1` e não `3` de propósito: fora da ordenação 0..2, para que um painel
-ordenando pelo código não leia "amostra insuficiente" como "menos drift que
-ok". Abaixo de `min_batch_size` (1.000, medido no teste A/A da etapa 2) o
+Os dois sentinelas são negativos de propósito: ficam fora da ordenação 0..2,
+para que um painel ordenando pelo código não leia "amostra insuficiente" ou
+"bloqueado" como "menos drift que ok".
+
+`stage_status` segue a mesma lógica: `1` ok, `0` falhou, **`-1` não executou**
+porque um estágio anterior bloqueou. Zero seria mentira (o estágio não falhou,
+nunca foi tentado) e `1` seria pior.
+
+**Lote bloqueado curto-circuita o pipeline.** Depois de um bloqueio de contrato
+nenhum estágio seguinte roda, e nenhuma métrica de drift, de predição ou de
+rótulo é publicada — as linhas foram recusadas, e calcular um PSI sobre elas
+produziria um número que parece medir a população e mede dado corrompido. O
+`verdict` no MLflow é `blocked`.
+
+**Abaixo de `min_batch_size`** (1.000, medido no teste A/A da etapa 2) o
 veredito **nunca** é verde nem vermelho — a medição não consegue separar drift
 do próprio viés, e pintar qualquer cor apresentaria isso como conhecimento.
-`sample_sufficient` vai a 0 no mesmo lote.
+`sample_sufficient` vai a 0 no mesmo lote. As duas condições são independentes:
+um lote pode ser grande e bloqueado.
+
+### Rótulos chegam atrasados, como na realidade
+
+`label_lag_months` (2, em `configs/monitoring.yaml`) não é conveniência: é a
+restrição que define o que o monitor pode saber e quando. No passo 6 do replay
+existe desempenho medido para os meses 0 a 4 e **nenhum** para os meses 5 e 6 —
+que já têm sinal de drift.
+
+É também o que torna a **janela cega** mensurável: os meses em que uma
+degradação real já acontece e nenhum sinal de nenhum tipo é visível. Medido,
+com atraso 2: `full` 0 meses, `composition_only` n/a, **`stress_only` 2 meses**.
+Ver `docs/findings.md` §13.
 
 ### Logs: sem dado pessoal, nunca
 

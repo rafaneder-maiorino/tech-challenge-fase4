@@ -1075,3 +1075,65 @@ todos os pares, então com X = Y os auto-pares sobrevivem só no cruzado e o
 MMD² cai perto de **-2/n**. O teste está no repositório afirmando esse offset,
 porque a versão ingênua falharia e pareceria bug no kernel. O caso que de fato
 tem de dar zero é **duas metades disjuntas** da mesma população.
+
+---
+
+## 13. A janela cega: dois meses degradando sem sinal de nenhum tipo
+
+**Etapa 3 · 2026-09-22 · `src/credit_monitor/monitoring/blind_window.py`**
+
+Um monitor é caracterizado por dois números, e o segundo quase nunca é
+reportado. O primeiro é o quanto ele detecta. O segundo é **por quanto tempo
+ele está errado** — o intervalo em que o modelo já está degradando e nada que o
+operador possa ver diz isso.
+
+O intervalo existe porque as duas famílias de sinal chegam em momentos
+diferentes. Drift de feature está disponível no instante em que o lote é
+pontuado. Desempenho precisa do desfecho, que chega **dois meses depois**
+(`label_lag_months`, em `configs/monitoring.yaml`). Então uma degradação que
+mexe nas features é visível na hora; uma que não mexe fica invisível até os
+rótulos chegarem, por pior que seja.
+
+### Medido, com atraso de 2 meses e degradação real definida como gap ≤ -0,015
+
+| cenário | meses degradados | 1º degradado | 1º sinal | **meses cego** |
+|---|---|---|---|---|
+| `full` | 3, 4, 5, 6 | 3 | **3** | **0** |
+| `composition_only` | nenhum | — | — | 0 |
+| `stress_only` | 3, 4, 5, 6 | 3 | **5** | **2** |
+
+**`full` tem janela cega zero** porque o drift de feature já está disparando no
+mês 3 — os dois mecanismos andam juntos, e o mais rápido dos dois avisa.
+
+**`composition_only` nunca degrada.** Zero aqui não é mérito do monitor: não há
+o que ver. O braço grita no painel de drift (PSI 0,93) e mantém o gap em
+-0,0028. Vale distinguir "não fiquei cego" de "não havia nada".
+
+**`stress_only` fica dois meses cego.** A degradação começa no mês 3 — gap de
+-0,0171, já além do limiar — e nenhuma feature se move: PSI máximo de 0,008,
+doze vezes abaixo do limiar de alerta. O único sinal possível é o rótulo, e o
+rótulo do mês 3 só chega no passo 5. Durante os meses **3 e 4** o modelo está
+medidamente pior e **todo painel está verde**.
+
+### Por que o número é exatamente o atraso
+
+Não é coincidência: quando nenhuma feature se move, a janela cega **é** o atraso
+de rótulo, por construção. O sinal de drift nunca chega, então o primeiro sinal
+é o rótulo, então a cegueira dura exatamente o tempo que o rótulo leva. O teste
+`test_the_blind_window_equals_the_label_lag_when_no_feature_drifts` fixa isso, e
+`test_a_longer_lag_widens_the_blind_window` fixa a consequência: **encurtar o
+atraso de rótulo é a única alavanca que reduz a janela cega para drift de
+conceito puro.** Nenhum limiar, nenhum teste estatístico e nenhuma feature
+adicional encurtam — só receber o desfecho mais cedo.
+
+Isso reordena o que vale investir. Melhorar o detector de drift de features não
+move este número em nada; conseguir rótulo parcial em um mês em vez de dois o
+corta pela metade.
+
+### O que aprendi disso
+
+O 2x2 do achado §9 dizia *que* o monitoramento de features não vê drift de
+conceito. Este achado diz **quanto isso custa**, na unidade em que a pergunta é
+feita numa reunião: meses. Uma afirmação qualitativa sobre cobertura virou um
+prazo, e prazo é a forma que a conversa toma quando alguém pergunta "e se
+acontecer?".
