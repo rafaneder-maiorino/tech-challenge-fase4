@@ -133,7 +133,7 @@
     },
     {
       "type": "stat",
-      "title": "full · gap de calibração (mês 6)",
+      "title": "full · gap de calibração (mês 4, último com rótulo)",
       "datasource": {
         "type": "prometheus",
         "uid": "prometheus"
@@ -150,7 +150,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "calibration_gap{scenario=\"full\",batch_id=\"month_06\"}",
+          "expr": "calibration_gap{scenario=\"full\",batch_id=\"month_04\"}",
           "legendFormat": "gap",
           "instant": true,
           "range": false,
@@ -192,7 +192,7 @@
     },
     {
       "type": "stat",
-      "title": "full · AUC (mês 6)",
+      "title": "full · AUC (mês 4, último com rótulo)",
       "datasource": {
         "type": "prometheus",
         "uid": "prometheus"
@@ -209,7 +209,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "auc{scenario=\"full\",batch_id=\"month_06\"}",
+          "expr": "auc{scenario=\"full\",batch_id=\"month_04\"}",
           "legendFormat": "AUC",
           "instant": true,
           "range": false,
@@ -398,7 +398,7 @@
     },
     {
       "type": "stat",
-      "title": "composition_only · gap de calibração (mês 6)",
+      "title": "composition_only · gap de calibração (mês 4, último com rótulo)",
       "datasource": {
         "type": "prometheus",
         "uid": "prometheus"
@@ -415,7 +415,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "calibration_gap{scenario=\"composition_only\",batch_id=\"month_06\"}",
+          "expr": "calibration_gap{scenario=\"composition_only\",batch_id=\"month_04\"}",
           "legendFormat": "gap",
           "instant": true,
           "range": false,
@@ -457,7 +457,7 @@
     },
     {
       "type": "stat",
-      "title": "composition_only · AUC (mês 6)",
+      "title": "composition_only · AUC (mês 4, último com rótulo)",
       "datasource": {
         "type": "prometheus",
         "uid": "prometheus"
@@ -474,7 +474,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "auc{scenario=\"composition_only\",batch_id=\"month_06\"}",
+          "expr": "auc{scenario=\"composition_only\",batch_id=\"month_04\"}",
           "legendFormat": "AUC",
           "instant": true,
           "range": false,
@@ -663,7 +663,7 @@
     },
     {
       "type": "stat",
-      "title": "stress_only · gap de calibração (mês 6)",
+      "title": "stress_only · gap de calibração (mês 4, último com rótulo)",
       "datasource": {
         "type": "prometheus",
         "uid": "prometheus"
@@ -680,7 +680,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "calibration_gap{scenario=\"stress_only\",batch_id=\"month_06\"}",
+          "expr": "calibration_gap{scenario=\"stress_only\",batch_id=\"month_04\"}",
           "legendFormat": "gap",
           "instant": true,
           "range": false,
@@ -722,7 +722,7 @@
     },
     {
       "type": "stat",
-      "title": "stress_only · AUC (mês 6)",
+      "title": "stress_only · AUC (mês 4, último com rótulo)",
       "datasource": {
         "type": "prometheus",
         "uid": "prometheus"
@@ -739,7 +739,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "auc{scenario=\"stress_only\",batch_id=\"month_06\"}",
+          "expr": "auc{scenario=\"stress_only\",batch_id=\"month_04\"}",
           "legendFormat": "AUC",
           "instant": true,
           "range": false,

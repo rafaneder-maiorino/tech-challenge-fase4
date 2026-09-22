@@ -6,11 +6,12 @@
 .PHONY: help install download inspect lint test \
         validate-bad-batch validate-clean-batch \
         prepare train recheck-correlation mlflow-ui simulate drift-reports publish-reports aa-test mmd \
-        stack-up stack-down stack-logs monitor-replay monitor-all alerts-test dashboards bias seed-noise
+        stack-up stack-down stack-logs monitor-replay monitor-all alerts-test dashboards bias seed-noise all
 
 # Default target: `make` with no arguments lists what exists.
 help:
 	@echo "Targets disponíveis:"
+	@echo "  make all       - a cadeia inteira na ordem certa (~7 min, ~1 GB) — comece aqui"
 	@echo "  make install   - cria o ambiente e instala as dependências (uv sync)"
 	@echo "  make download  - baixa o dataset bruto do OpenML e verifica o checksum"
 	@echo "  make inspect   - gera reports/inspection.md a partir do dado bruto"
@@ -37,6 +38,35 @@ help:
 
 # Installs the project itself too (src layout), which is what makes
 # `import credit_monitor` work without a PYTHONPATH hack.
+# A cadeia inteira, na ordem em que as dependências exigem. É o alvo para quem
+# clonou agora: nenhum passo aqui roda sobre estado deixado por outro dia.
+#
+# O que NÃO entra, de propósito:
+#   - validate-bad-batch, que sai com código != 0 por desenho (o portão
+#     bloqueou o lote) e derrubaria o make;
+#   - publish-reports, o único alvo que toca HTML versionado;
+#   - stack-up e monitor-all, que precisam do Docker de pé — ficam num alvo
+#     próprio para que `make all` funcione sem Docker instalado.
+#
+# Medido num MacBook (Apple Silicon, cache do uv quente): ~7 min e ~1 GB em
+# disco, dos quais 852 MB são o .venv. Com o cache frio some ~2 min no install.
+all:
+	$(MAKE) download
+	$(MAKE) inspect
+	$(MAKE) prepare
+	$(MAKE) train
+	$(MAKE) simulate
+	$(MAKE) drift-reports
+	$(MAKE) aa-test
+	$(MAKE) bias
+	$(MAKE) seed-noise
+	$(MAKE) dashboards
+	$(MAKE) lint
+	$(MAKE) test
+	@echo ""
+	@echo "Cadeia completa. Para a observabilidade (precisa de Docker):"
+	@echo "  make stack-up && make monitor-all"
+
 install:
 	uv sync
 
@@ -154,10 +184,16 @@ publish-reports:
 
 # Teste A/A: amostras do holdout contra a referência, onde todo alarme é falso.
 # Determinístico pela semente. `--reuse` aproveita o cache em data/drift_tests.
-aa-test:
+# DEPENDE de `mmd`, e a ordem não é negociável: `aa_test.py` é quem escreve
+# reports/drift_tests/summary.md, e ele só preenche a seção de MMD se o cache
+# em data/drift_tests/ já existir. Rodando `aa-test` antes de `mmd`, o resumo
+# sai com o texto "_Rode `make mmd` para preencher esta seção._" no lugar da
+# tabela — que foi exatamente o que aconteceu no teste de clone limpo.
+aa-test: mmd
 	uv run python scripts/aa_test.py
 
 # MMD nos lotes, A/A do próprio MMD e localização por par de features.
+# Escreve só o cache em data/drift_tests/; quem monta o resumo é o aa-test.
 mmd:
 	uv run python scripts/mmd_test.py
 

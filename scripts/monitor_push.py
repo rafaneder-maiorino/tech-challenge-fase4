@@ -43,8 +43,8 @@ from credit_monitor.monitoring.run import (
     run_scoring,
 )
 from credit_monitor.reporting.drift import PREDICTION_COLUMN
+from credit_monitor.simulation.arms import ensure_scenario
 from credit_monitor.simulation.config import SimulationConfig
-from credit_monitor.simulation.simulate import run_simulation
 
 log = logging.getLogger(__name__)
 
@@ -103,36 +103,6 @@ def wipe_gateway(gateway: str) -> None:
     except urllib.error.URLError as error:
         raise SystemExit(f"Pushgateway inacessível em {gateway}: {error}") from error
     print(f"grupos antigos apagados de {gateway}")
-
-
-def scenario_dir(batches_dir: Path, scenario: str) -> Path:
-    """Where a scenario's monthly batches live."""
-    if scenario == "full":
-        return batches_dir
-    return batches_dir / f"ablation_{scenario}"
-
-
-def ensure_scenario(
-    scenario: str, batches_dir: Path, data_dir: Path, model: object
-) -> Path:
-    """Generate an ablation arm's batches if they are not on disk yet."""
-    directory = scenario_dir(batches_dir, scenario)
-    if (directory / "month_00" / "features.parquet").exists():
-        return directory
-    config = SimulationConfig.load()
-    reference = pd.read_parquet(data_dir / "reference.parquet")
-    holdout = pd.read_parquet(data_dir / "holdout.parquet")
-    arm = scenario.removesuffix("_only")
-    run_simulation(
-        holdout,
-        reference,
-        config,
-        model,  # type: ignore[arg-type]
-        toggles=config.mechanisms.only(arm),
-        label=scenario,
-        write_dir=directory,
-    )
-    return directory
 
 
 def make_small_demo(
@@ -277,7 +247,7 @@ def main() -> None:
     simulation = SimulationConfig.load()
     lag = config.label_lag_months
     directories = {
-        scenario: ensure_scenario(scenario, args.batches_dir, args.data_dir, model)
+        scenario: ensure_scenario(scenario, model, args.batches_dir, args.data_dir)
         for scenario in SCENARIOS
     }
 
