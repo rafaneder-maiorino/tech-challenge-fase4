@@ -148,6 +148,55 @@ está acontecendo agora e o que deveria acordar alguém"; o MLflow responde "o
 que foi decidido, sobre qual dado, por qual versão do modelo". Reconstruir
 qualquer um dos dois a partir do outro é chute.
 
+## Governança, privacidade e LGPD (etapa 4)
+
+**Documento completo: [`docs/governanca.md`](docs/governanca.md).**
+
+O projeto usa um dataset **público e já anonimizado** (*Give-Me-Some-Credit*,
+OpenML id 45577): não há dado pessoal real e não há titular. Na prática a LGPD
+não incide sobre este tratamento, e um documento de governança que fingisse o
+contrário estaria inventando conformidade. O que `docs/governanca.md` faz é
+descrever o sistema **como se ele recebesse candidatos reais amanhã**, com duas
+camadas que nunca se misturam:
+
+- **[IMPLEMENTADO]** — o que o repositório faz hoje, sempre com arquivo, função,
+  configuração ou teste que se pode abrir e conferir.
+- **[PRESCRITO]** — o que um sistema com titulares reais precisaria além disso,
+  e que aqui **não existe**.
+
+O que está lá:
+
+| seção | conteúdo |
+|---|---|
+| §1 | inventário das 11 colunas — nenhuma é sensível pelo Art. 11, **nenhuma é identificador** (verificado na inspeção do dia 1), e `age` + renda + dependentes + linhas abertas formam uma combinação quase-identificadora |
+| §2 | base legal: **proteção ao crédito (Art. 7, X)**, e por que consentimento é o pior encaixe — não é livre quando dá acesso a crédito, e é revogável, o que esvaziaria a própria referência de drift |
+| §2.2 | **Art. 20** (revisão e critérios) ligado ao que já existe: registry com alias `champion`, `dataset_sha256` por run, participação no ganho por feature, probabilidade **calibrada** |
+| §3 | retenção por artefato, com a razão de cada prazo |
+| §4 | os sete princípios de *Privacy by Design*, cada um apontando para um caminho de arquivo |
+| §5 | o hash salgado dos logs: **pseudonimização (Art. 13), não anonimização** |
+| §6 | as limitações, reunidas |
+
+Três pontos que o documento **argumenta** em vez de afirmar:
+
+1. **A quarentena é a tensão mais aguda.** Linhas rejeitadas são guardadas
+   inteiras, com o valor que causou a rejeição — o oposto da minimização, de
+   propósito. Sem essa evidência ninguém consegue distinguir "a pessoa mandou
+   dado errado" de "o nosso contrato está errado", e a rejeição deixa de ser
+   contestável. A exceção paga por si com a retenção mais curta da tabela.
+2. **Monitoramento precisa de história.** Uma referência apagada não é
+   substituível, e o sistema não acusa erro — passa a medir drift contra uma
+   base nova e reporta que está tudo bem. A reconciliação é guardar a
+   **estatística** (bordas de bin, quantis, distribuições nulas) e deixar as
+   **linhas** seguirem o prazo do dado operacional.
+3. **Calibrar é uma questão de justiça antes de ser técnica.** Reponderar a
+   classe infla as probabilidades ~14x sem mexer no AUC nem no KS: a pessoa é
+   recusada por um número que não significa o que diz, e é justamente esse
+   número que o Art. 20 §1 lhe apresentaria como "o critério".
+
+A camada [PRESCRITO] é grande de propósito. A maior parte da conformidade com a
+LGPD é processo organizacional — encarregado, canal do titular, revisão humana,
+resposta a incidente — e isso não mora num repositório de código.
+
 ## Notas de contribuição
 
 **Todo dia termina atualizando [`docs/video-notes.md`](docs/video-notes.md)** com
