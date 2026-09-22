@@ -86,6 +86,32 @@ mmd_alpha: 0.05
 # ------------------------------------------------------------------------
 label_lag_months: 2
 
-# Limiar de gap de calibração a partir do qual a degradação conta como real.
-# Provisório até o dia 10 fixar os limiares de alerta.
-degradation_gap_threshold: -0.015
+# ------------------------------------------------------------------------
+# Limiares de saúde do modelo — CALIBRADOS, não escolhidos
+#
+# Mesmo método do dia 8 para os limiares de drift: 500 sorteios de 7.000 linhas
+# do holdout, sem drift nenhum, e os limiares saem da distribuição nula
+# resultante. O -0,015 provisório tinha falso alarme medido de 0,0% — seguro e
+# cego: fica 6,5 desvios abaixo da média nula, então só dispara para uma
+# degradação enorme.
+#
+# Nulo do gap de calibração: média +0,00075, desvio 0,00241
+# Nulo do AUC:               média  0,85871, desvio 0,00857
+#
+# gap: percentil 0,5% -> -0,0056, falso alarme medido 0,6%
+# AUC: percentil 1%   ->  0,8372, falso alarme medido 1,0%
+#
+# A assimetria é de propósito: o gap é crítico e acorda alguém, então paga um
+# percentil mais apertado; o AUC é alerta e pode ser mais sensível.
+# ------------------------------------------------------------------------
+calibration_gap_critical: -0.0056
+auc_warning: 0.8372
+calibration_gap_null_mean: 0.00075
+calibration_gap_null_std: 0.00241
+auc_null_mean: 0.85871
+auc_null_std: 0.00857
+
+# O mesmo limiar crítico define o que conta como degradação real ao medir a
+# janela cega. Usar dois números diferentes para "o modelo piorou" produziria
+# duas respostas para a mesma pergunta.
+degradation_gap_threshold: -0.0056

@@ -144,32 +144,38 @@ por pouco — ver "Descartados".
 
 ---
 
-### F. A janela cega — dois meses degradando com o painel verde
+### F. O monitor nunca chega na frente
 
-> achado #13 · **candidato forte, ainda não promovido**
+> achado #13 · **fecho natural do herói A**
 
 | | |
 |---|---|
-| **Número** | `stress_only`: degradação começa no mês 3, primeiro sinal no mês 5. **2 meses cego.** |
-| **Na tela** | a saída de `make monitor-all`, a tabela "JANELA CEGA POR CENARIO" |
+| **Número** | **lead time assinado**: `full` **-1 mês**, `stress_only` **-2 meses**. Os dois negativos. Nenhum cenário positivo. |
+| **Na tela** | a saída de `make monitor-all`, tabela "LEAD TIME POR CENARIO" — as duas linhas marcadas `CEGO` — ou a dashboard de visão geral, painel "lotes sem desfecho" |
 | **Comando** | `make monitor-all` (exige `make stack-up`) |
 
 **Falado (~15s):**
-> "O rótulo chega dois meses depois da decisão. Então quando a degradação não
-> mexe em nenhuma feature — e no braço de estresse ela não mexe, PSI máximo de
-> zero vírgula zero zero oito — o único sinal possível é o desfecho, e ele está
-> atrasado. Medi: dois meses em que o modelo está pior e todo painel está
-> verde. Melhorar o detector de drift não muda esse número. Só receber o rótulo
-> mais cedo."
+> "Eu vinha dizendo que o drift de features é um sinal antecedente: chega
+> primeiro, não basta sozinho. Medi, e a primeira metade estava errada. No braço
+> completo o alarme de drift chega **um mês depois** do dano; no braço de
+> estresse ele **não chega nunca** — o desfecho avisa dois meses tarde. Menos um
+> e menos dois. Não existe cenário nesta simulação em que monitorar feature
+> avise antes do estrago. O melhor caso do monitor de features não é 'cedo', é
+> 'um mês tarde'."
 
-**Por que é forte:** é o achado **A** (o 2x2) convertido em prazo. A afirmação
-"monitorar feature não basta" vira "não basta por dois meses", e prazo é a forma
-que a pergunta toma numa reunião.
+**Por que é forte:** é uma **reversão medida**, não uma confirmação. E o número
+mudou de sinal por causa de um limiar: com o -0,015 provisório o `full` dava
+**+1** e parecia aviso antecipado — porque aquele limiar ficava 6,5 desvios fora
+da distribuição nula e não reconhecia o dano do mês 1 (gap -0,0091, fora da
+nula, mas acima do -0,015). Calibrado a 0,6% de falso alarme, o dano aparece no
+mês 1, o alarme continua no mês 2, e o lead vira **-1**. A correção **piorou** o
+número reportado — que é o que dá para confiar nele.
 
-**Por que ainda não está promovido:** ele *depende* de **A** para fazer sentido —
-sozinho não se explica. O caminho natural é virar os **últimos 10 segundos de
-A**, não um herói próprio: mostra-se o par de HTML verde/vermelho e fecha-se com
-"e isso dura dois meses". Decidir ao cronometrar a seção Result.
+**Onde entra:** é o fecho de **A**, não um herói próprio — sozinho não se
+explica, porque depende do 2x2 para dizer *por que* o monitor não vê. Mostra-se
+o par de HTML verde/vermelho e fecha-se com "e o monitor de features nunca
+chegou na frente: menos um mês no melhor caso, menos dois no pior". Custa ~10s
+dos 45s de **A**.
 
 ---
 
@@ -205,6 +211,28 @@ feita contra quatro alvos declarados antes.
 inadimplência observada indo de **7,08%** a **24,46%**.
 **Por que:** é a degradação silenciosa em uma coluna. O AUC cai 9,6% e parece
 tolerável; o nível de risco triplica.
+
+### D6 — As três dashboards `[NOVO — dia 10]`
+
+**URLs** (exigem `make stack-up`):
+- `http://localhost:3000/d/cm-overview` — visão geral
+- `http://localhost:3000/d/cm-drilldown` — detalhe
+- `http://localhost:3000/d/cm-feature` — feature
+
+**Na tela, na visão geral:** as três linhas de cenário lado a lado.
+`composition_only` com **crítico** em drift e gap de -0,0028;
+`stress_only` com **ok** em drift e gap de -0,0337. **O 2x2 numa tela só**, com
+os códigos renderizados como texto colorido, nunca como número negativo cru.
+
+**Na dashboard de detalhe:** o mapa de calor de PSI por feature e mês (a rampa
+verde→vermelho), e os painéis de saúde do modelo com os **meses 5 e 6
+ausentes** — não zerados. A ausência é o ponto.
+
+**Por que vale:** é o único artefato que se parece com o que a pessoa usaria de
+verdade. Os HTML do Evidently provam o argumento; a dashboard mostra o produto.
+
+**Cuidado na gravação:** rodar `make monitor-all` antes e esperar ~15 s para o
+Prometheus raspar o Pushgateway.
 
 ### D4 — O par `stress_only` `[PEÇA CENTRAL]`
 

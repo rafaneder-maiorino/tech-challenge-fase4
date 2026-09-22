@@ -7,6 +7,11 @@ global:
   external_labels:
     stack: tech-challenge-fase4
 
+# As regras vivem em arquivo, versionadas e testadas por `promtool test rules`
+# no CI. Regra de alerta em UI é regra que ninguém revisa.
+rule_files:
+  - /etc/prometheus/rules/*.rules.yml
+
 scrape_configs:
   # O Pushgateway é o único alvo que carrega dado do pipeline.
   #

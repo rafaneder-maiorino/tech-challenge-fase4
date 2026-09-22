@@ -1,0 +1,147 @@
+# Regras de alerta e de registro do monitor de crédito.
+#
+# As séries são identificadas por `batch_id`, não pelo tempo: o Pushgateway
+# recusa timestamp do cliente, então cada lote persiste como série própria (ver
+# docs/metrics.md). Uma consequência prática é que `for:` não tem o sentido
+# habitual aqui — a série não "fica" disparando ao longo do tempo, ela existe
+# enquanto o lote existir. As regras são avaliadas sobre o vetor instantâneo.
+#
+# Todo limiar veio de uma medição, não de convenção. Os de drift saíram do
+# teste A/A da etapa 2 (docs/findings.md §11); os de saúde do modelo saíram do
+# bootstrap do dia 10 (docs/metrics.md §4). Cada alerta aponta para um runbook.
+
+groups:
+  # ------------------------------------------------------------------------
+  # Regras de registro: dão nome ao que os alertas e o painel consultam.
+  # ------------------------------------------------------------------------
+  - name: credit_monitor_recording
+    interval: 15s
+    rules:
+      # Quantos lotes já pontuados ainda esperam o desfecho. É a janela cega
+      # em forma de número na tela, em vez de implícita numa ausência de dado.
+      - record: labels_pending_batches
+        expr: sum by (scenario) (labels_pending)
+
+      # O pior PSI do lote, para o painel não precisar repetir o max().
+      - record: batch:drift_psi:max
+        expr: max by (scenario, batch_id) (drift_psi)
+
+      # PSI ponderado pelo ganho: a ordenação que importa (dia 7).
+      - record: batch:drift_psi_weighted:max
+        expr: max by (scenario, batch_id) (drift_psi_weighted)
+
+  - name: credit_monitor_pipeline
+    interval: 15s
+    rules:
+      - alert: ContractBlocked
+        expr: stage_status{stage="contract"} == 0
+        labels:
+          severity: critical
+        annotations:
+          summary: "Contrato bloqueou o lote {{ $labels.batch_id }}"
+          description: >-
+            O contrato de dados recusou o lote {{ $labels.batch_id }} do cenário
+            {{ $labels.scenario }}. Os estágios seguintes NÃO rodaram
+            (stage_status = -1) e nenhuma métrica de drift ou de predição foi
+            publicada — o lote não foi pontuado.
+          runbook_url: "https://github.com/rafaneder-maiorino/tech-challenge-fase4/blob/main/docs/runbooks/ContractBlocked.md"
+
+      - alert: InsufficientSample
+        expr: sample_sufficient == 0
+        labels:
+          severity: info
+        annotations:
+          summary: "Amostra insuficiente em {{ $labels.batch_id }}"
+          description: >-
+            O lote {{ $labels.batch_id }} tem menos linhas que o mínimo de 1.000
+            medido no teste A/A. O monitor ABSTEVE-SE: drift_verdict = -1. Isto
+            não é verde — é ausência de veredito.
+          runbook_url: "https://github.com/rafaneder-maiorino/tech-challenge-fase4/blob/main/docs/runbooks/InsufficientSample.md"
+
+  - name: credit_monitor_drift
+    interval: 15s
+    rules:
+      # Aviso: qualquer feature acima de 0,10. Falso alarme medido de 0,0% em
+      # 200 sorteios no tamanho de lote de produção (etapa 2, achado §11).
+      - alert: FeatureDrift
+        expr: drift_psi > 0.10 unless (drift_psi > 0.25 and on (feature, scenario, batch_id) feature_gain_share >= 0.10)
+        labels:
+          severity: warning
+        annotations:
+          summary: "Drift em {{ $labels.feature }} ({{ $labels.batch_id }})"
+          description: >-
+            PSI de {{ $labels.feature }} acima de 0,10 no lote
+            {{ $labels.batch_id }}. Permanece em warning porque não satisfaz as
+            duas condições do critical ao mesmo tempo: PSI acima de 0,25 E
+            participação no ganho do campeão de 10% ou mais.
+          runbook_url: "https://github.com/rafaneder-maiorino/tech-challenge-fase4/blob/main/docs/runbooks/FeatureDrift.md"
+
+      # Crítico exige MAGNITUDE E IMPACTO. Uma feature com PSI alto e pouco
+      # peso no modelo continua warning — é o princípio PSI x ganho (dia 7) e a
+      # ressalva de ordenação por dano do MMD (dia 8): detector mede tamanho
+      # estatístico, não prejuízo.
+      - alert: FeatureDriftCritical
+        expr: drift_psi > 0.25 and on (feature, scenario, batch_id) feature_gain_share >= 0.10
+        labels:
+          severity: critical
+        annotations:
+          summary: "Drift crítico em {{ $labels.feature }} ({{ $labels.batch_id }})"
+          description: >-
+            PSI de {{ $labels.feature }} acima de 0,25 E a feature carrega 10% ou
+            mais do ganho do campeão. Magnitude e impacto ao mesmo tempo.
+          runbook_url: "https://github.com/rafaneder-maiorino/tech-challenge-fase4/blob/main/docs/runbooks/FeatureDrift.md"
+
+      - alert: PredictionDrift
+        expr: prediction_psi > 0.10
+        labels:
+          severity: warning
+        annotations:
+          summary: "Distribuição de score mudou em {{ $labels.batch_id }}"
+          description: >-
+            O PSI da distribuição de probabilidades previstas passou de 0,10. É
+            o sinal mais precoce disponível sem rótulo: agrega todas as features
+            e existe no momento da pontuação.
+          runbook_url: "https://github.com/rafaneder-maiorino/tech-challenge-fase4/blob/main/docs/runbooks/PredictionDrift.md"
+
+  - name: credit_monitor_model_health
+    interval: 15s
+    rules:
+      # Limiar calibrado: percentil 0,5% da distribuição nula do gap
+      # (500 sorteios de 7.000 linhas do holdout). Falso alarme medido 0,6%.
+      - alert: CalibrationGapBreach
+        expr: calibration_gap <= -0.0056
+        labels:
+          severity: critical
+        annotations:
+          summary: "Gap de calibração fora do nulo em {{ $labels.batch_id }}"
+          description: >-
+            Previsto médio menos observado em {{ $value }}, além do percentil
+            0,5% da distribuição nula (-0,0056, falso alarme medido 0,6%). É o
+            único sinal que enxerga drift de conceito — e chega com o atraso do
+            rótulo.
+          runbook_url: "https://github.com/rafaneder-maiorino/tech-challenge-fase4/blob/main/docs/runbooks/CalibrationGapBreach.md"
+
+      # Percentil 1% do nulo do AUC. Falso alarme medido 1,0%.
+      - alert: AUCDrop
+        expr: auc <= 0.8372
+        labels:
+          severity: warning
+        annotations:
+          summary: "AUC abaixo do nulo em {{ $labels.batch_id }}"
+          description: >-
+            AUC de {{ $value }}, abaixo do percentil 1% da distribuição nula
+            (0,8372, falso alarme medido 1,0%). Ordenação degradada.
+          runbook_url: "https://github.com/rafaneder-maiorino/tech-challenge-fase4/blob/main/docs/runbooks/AUCDrop.md"
+
+      - alert: LabelsPending
+        expr: labels_pending_batches > 0
+        labels:
+          severity: info
+        annotations:
+          summary: "{{ $value }} lote(s) sem desfecho em {{ $labels.scenario }}"
+          description: >-
+            Lotes pontuados cujo rótulo ainda não chegou. Durante essa janela
+            nenhum sinal de saúde do modelo existe para eles — só drift de
+            feature, que não vê drift de conceito. Medido: no cenário
+            stress_only a cegueira dura 2 meses.
+          runbook_url: "https://github.com/rafaneder-maiorino/tech-challenge-fase4/blob/main/docs/runbooks/LabelsPending.md"

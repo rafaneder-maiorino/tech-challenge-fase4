@@ -1,0 +1,238 @@
+# Testes unitários das regras, executados por `promtool test rules`.
+#
+# Os números vêm das medições das etapas 2 e 3 — não são inventados para o
+# teste passar. O caso central é o 2x2: no mês 6 do braço `stress_only` o drift
+# de feature NÃO dispara (PSI máximo de 0,008) e o gap de calibração dispara,
+# mas só depois de o rótulo chegar.
+
+rule_files:
+  - credit_monitor.rules.yml
+
+evaluation_interval: 15s
+
+tests:
+  # ------------------------------------------------------------------------
+  # O 2x2, como teste: stress_only no mês 6.
+  # ------------------------------------------------------------------------
+  - interval: 15s
+    name: "stress_only mês 6: features quietas, modelo degradado"
+    input_series:
+      # PSI real medido no braço stress_only, mês 6: nada perto de 0,10.
+      - series: 'drift_psi{job="credit_monitor_scoring",scenario="stress_only",batch_id="month_06",feature="RevolvingUtilizationOfUnsecuredLines"}'
+        values: "0.008+0x10"
+      - series: 'drift_psi{job="credit_monitor_scoring",scenario="stress_only",batch_id="month_06",feature="NumberOfTimes90DaysLate"}'
+        values: "0.003+0x10"
+      - series: 'feature_gain_share{job="credit_monitor_scoring",scenario="stress_only",batch_id="month_06",feature="RevolvingUtilizationOfUnsecuredLines"}'
+        values: "0.1889+0x10"
+      - series: 'feature_gain_share{job="credit_monitor_scoring",scenario="stress_only",batch_id="month_06",feature="NumberOfTimes90DaysLate"}'
+        values: "0.2847+0x10"
+      - series: 'prediction_psi{job="credit_monitor_scoring",scenario="stress_only",batch_id="month_06"}'
+        values: "0.004+0x10"
+      # O gap real do braço: -0,0337, muito além do limiar calibrado.
+      - series: 'calibration_gap{job="credit_monitor_labels",scenario="stress_only",batch_id="month_06"}'
+        values: "-0.0337+0x10"
+      - series: 'auc{job="credit_monitor_labels",scenario="stress_only",batch_id="month_06"}'
+        values: "0.7917+0x10"
+    alert_rule_test:
+      # Nenhum alerta de feature: é exatamente a metade cega do 2x2.
+      - eval_time: 1m
+        alertname: FeatureDrift
+        exp_alerts: []
+      - eval_time: 1m
+        alertname: FeatureDriftCritical
+        exp_alerts: []
+      - eval_time: 1m
+        alertname: PredictionDrift
+        exp_alerts: []
+      # E o alerta que só existe porque o rótulo chegou.
+      - eval_time: 1m
+        alertname: CalibrationGapBreach
+        exp_alerts:
+          - exp_labels:
+              severity: critical
+              job: credit_monitor_labels
+              scenario: stress_only
+              batch_id: month_06
+            exp_annotations:
+              summary: "Gap de calibração fora do nulo em month_06"
+              description: "Previsto médio menos observado em -0.0337, além do percentil 0,5% da distribuição nula (-0,0056, falso alarme medido 0,6%). É o único sinal que enxerga drift de conceito — e chega com o atraso do rótulo."
+              runbook_url: "https://github.com/rafaneder-maiorino/tech-challenge-fase4/blob/main/docs/runbooks/CalibrationGapBreach.md"
+      - eval_time: 1m
+        alertname: AUCDrop
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              job: credit_monitor_labels
+              scenario: stress_only
+              batch_id: month_06
+            exp_annotations:
+              summary: "AUC abaixo do nulo em month_06"
+              description: "AUC de 0.7917, abaixo do percentil 1% da distribuição nula (0,8372, falso alarme medido 1,0%). Ordenação degradada."
+              runbook_url: "https://github.com/rafaneder-maiorino/tech-challenge-fase4/blob/main/docs/runbooks/AUCDrop.md"
+
+  # ------------------------------------------------------------------------
+  # Antes de o rótulo chegar, o MESMO lote não tem alerta de saúde nenhum.
+  # ------------------------------------------------------------------------
+  - interval: 15s
+    name: "stress_only mês 6 sem rótulo: silêncio total"
+    input_series:
+      - series: 'drift_psi{job="credit_monitor_scoring",scenario="stress_only",batch_id="month_06",feature="RevolvingUtilizationOfUnsecuredLines"}'
+        values: "0.008+0x10"
+      - series: 'labels_pending{job="credit_monitor_scoring",scenario="stress_only",batch_id="month_06"}'
+        values: "1+0x10"
+      - series: 'labels_pending{job="credit_monitor_scoring",scenario="stress_only",batch_id="month_05"}'
+        values: "1+0x10"
+    alert_rule_test:
+      - eval_time: 1m
+        alertname: FeatureDrift
+        exp_alerts: []
+      - eval_time: 1m
+        alertname: CalibrationGapBreach
+        exp_alerts: []
+      # O único sinal disponível: dois lotes esperando desfecho.
+      - eval_time: 1m
+        alertname: LabelsPending
+        exp_alerts:
+          - exp_labels:
+              severity: info
+              scenario: stress_only
+            exp_annotations:
+              summary: "2 lote(s) sem desfecho em stress_only"
+              description: "Lotes pontuados cujo rótulo ainda não chegou. Durante essa janela nenhum sinal de saúde do modelo existe para eles — só drift de feature, que não vê drift de conceito. Medido: no cenário stress_only a cegueira dura 2 meses."
+              runbook_url: "https://github.com/rafaneder-maiorino/tech-challenge-fase4/blob/main/docs/runbooks/LabelsPending.md"
+
+  # ------------------------------------------------------------------------
+  # Severidade segue o impacto, não a magnitude.
+  # ------------------------------------------------------------------------
+  - interval: 15s
+    name: "PSI alto em feature de pouco peso continua warning"
+    input_series:
+      # `age`: PSI de 0,314 no mês 6 do braço full, mas só 3,29% do ganho.
+      - series: 'drift_psi{job="credit_monitor_scoring",scenario="full",batch_id="month_06",feature="age"}'
+        values: "0.314+0x10"
+      - series: 'feature_gain_share{job="credit_monitor_scoring",scenario="full",batch_id="month_06",feature="age"}'
+        values: "0.0329+0x10"
+      # `NumberOfTimes90DaysLate`: PSI menor (0,302) e 28,47% do ganho.
+      - series: 'drift_psi{job="credit_monitor_scoring",scenario="full",batch_id="month_06",feature="NumberOfTimes90DaysLate"}'
+        values: "0.302+0x10"
+      - series: 'feature_gain_share{job="credit_monitor_scoring",scenario="full",batch_id="month_06",feature="NumberOfTimes90DaysLate"}'
+        values: "0.2847+0x10"
+    alert_rule_test:
+      # A de mais PSI fica em warning; a de menos PSI e mais peso vira critical.
+      - eval_time: 1m
+        alertname: FeatureDrift
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              job: credit_monitor_scoring
+              scenario: full
+              batch_id: month_06
+              feature: age
+            exp_annotations:
+              summary: "Drift em age (month_06)"
+              description: "PSI de age acima de 0,10 no lote month_06. Permanece em warning porque não satisfaz as duas condições do critical ao mesmo tempo: PSI acima de 0,25 E participação no ganho do campeão de 10% ou mais."
+              runbook_url: "https://github.com/rafaneder-maiorino/tech-challenge-fase4/blob/main/docs/runbooks/FeatureDrift.md"
+      - eval_time: 1m
+        alertname: FeatureDriftCritical
+        exp_alerts:
+          - exp_labels:
+              severity: critical
+              job: credit_monitor_scoring
+              scenario: full
+              batch_id: month_06
+              feature: NumberOfTimes90DaysLate
+            exp_annotations:
+              summary: "Drift crítico em NumberOfTimes90DaysLate (month_06)"
+              description: "PSI de NumberOfTimes90DaysLate acima de 0,25 E a feature carrega 10% ou mais do ganho do campeão. Magnitude e impacto ao mesmo tempo."
+              runbook_url: "https://github.com/rafaneder-maiorino/tech-challenge-fase4/blob/main/docs/runbooks/FeatureDrift.md"
+
+  # ------------------------------------------------------------------------
+  # Pipeline: bloqueio e abstenção.
+  # ------------------------------------------------------------------------
+  - interval: 15s
+    name: "lote bloqueado e lote pequeno demais"
+    input_series:
+      - series: 'stage_status{job="credit_monitor_scoring",scenario="full",batch_id="dirty_batch",stage="contract"}'
+        values: "0+0x10"
+      - series: 'stage_status{job="credit_monitor_scoring",scenario="full",batch_id="dirty_batch",stage="drift"}'
+        values: "-1+0x10"
+      - series: 'sample_sufficient{job="credit_monitor_scoring",scenario="full",batch_id="small_demo"}'
+        values: "0+0x10"
+      - series: 'sample_sufficient{job="credit_monitor_scoring",scenario="full",batch_id="month_06"}'
+        values: "1+0x10"
+    alert_rule_test:
+      - eval_time: 1m
+        alertname: ContractBlocked
+        exp_alerts:
+          - exp_labels:
+              severity: critical
+              job: credit_monitor_scoring
+              scenario: full
+              batch_id: dirty_batch
+              stage: contract
+            exp_annotations:
+              summary: "Contrato bloqueou o lote dirty_batch"
+              description: "O contrato de dados recusou o lote dirty_batch do cenário full. Os estágios seguintes NÃO rodaram (stage_status = -1) e nenhuma métrica de drift ou de predição foi publicada — o lote não foi pontuado."
+              runbook_url: "https://github.com/rafaneder-maiorino/tech-challenge-fase4/blob/main/docs/runbooks/ContractBlocked.md"
+      # Um estágio pulado (-1) NÃO dispara ContractBlocked: só o que falhou.
+      - eval_time: 1m
+        alertname: InsufficientSample
+        exp_alerts:
+          - exp_labels:
+              severity: info
+              job: credit_monitor_scoring
+              scenario: full
+              batch_id: small_demo
+            exp_annotations:
+              summary: "Amostra insuficiente em small_demo"
+              description: "O lote small_demo tem menos linhas que o mínimo de 1.000 medido no teste A/A. O monitor ABSTEVE-SE: drift_verdict = -1. Isto não é verde — é ausência de veredito."
+              runbook_url: "https://github.com/rafaneder-maiorino/tech-challenge-fase4/blob/main/docs/runbooks/InsufficientSample.md"
+
+  # ------------------------------------------------------------------------
+  # Um lote saudável não dispara nada. Sem isto, uma regra sempre-verdadeira
+  # passaria em todos os testes acima.
+  # ------------------------------------------------------------------------
+  - interval: 15s
+    name: "mês 0 saudável: nenhum alerta"
+    input_series:
+      - series: 'drift_psi{job="credit_monitor_scoring",scenario="full",batch_id="month_00",feature="age"}'
+        values: "0.001+0x10"
+      - series: 'feature_gain_share{job="credit_monitor_scoring",scenario="full",batch_id="month_00",feature="age"}'
+        values: "0.0329+0x10"
+      - series: 'prediction_psi{job="credit_monitor_scoring",scenario="full",batch_id="month_00"}'
+        values: "0.0018+0x10"
+      - series: 'sample_sufficient{job="credit_monitor_scoring",scenario="full",batch_id="month_00"}'
+        values: "1+0x10"
+      - series: 'stage_status{job="credit_monitor_scoring",scenario="full",batch_id="month_00",stage="contract"}'
+        values: "1+0x10"
+      - series: 'calibration_gap{job="credit_monitor_labels",scenario="full",batch_id="month_00"}'
+        values: "-0.0027+0x10"
+      - series: 'auc{job="credit_monitor_labels",scenario="full",batch_id="month_00"}'
+        values: "0.8601+0x10"
+      - series: 'labels_pending{job="credit_monitor_scoring",scenario="full",batch_id="month_00"}'
+        values: "0+0x10"
+    alert_rule_test:
+      - eval_time: 1m
+        alertname: FeatureDrift
+        exp_alerts: []
+      - eval_time: 1m
+        alertname: FeatureDriftCritical
+        exp_alerts: []
+      - eval_time: 1m
+        alertname: PredictionDrift
+        exp_alerts: []
+      - eval_time: 1m
+        alertname: ContractBlocked
+        exp_alerts: []
+      - eval_time: 1m
+        alertname: InsufficientSample
+        exp_alerts: []
+      - eval_time: 1m
+        alertname: CalibrationGapBreach
+        exp_alerts: []
+      - eval_time: 1m
+        alertname: AUCDrop
+        exp_alerts: []
+      - eval_time: 1m
+        alertname: LabelsPending
+        exp_alerts: []

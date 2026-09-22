@@ -737,9 +737,15 @@ família de sinal que enxerga drift de conceito.
 
 E é também a mais cara e a mais lenta, porque o rótulo chega meses depois — o
 que é exatamente o motivo de os lotes serem escritos em três arquivos
-separados. Isso faz do drift de features um sinal **antecedente** útil e
-insuficiente: ele chega primeiro e às vezes chega sozinho, e um painel que só
-tenha ele estará verde no pior cenário dos dois.
+separados.
+
+> **Corrigido pelo achado §13.** Esta seção dizia que isso fazia do drift de
+> features um sinal **antecedente** útil e insuficiente — "ele chega primeiro".
+> A medição de lead time refutou a primeira metade: `full` tem lead **-1** e
+> `stress_only` tem **-2**, e em nenhum cenário o alarme de drift chegou antes
+> do dano. O que sobra é a segunda metade, mais forte do que parecia: drift de
+> features é um sinal **insuficiente e atrasado**, e um painel que só tenha ele
+> estará verde no pior cenário dos dois — e atrasado no outro.
 
 Os dois juntos cobrem o quadrado inteiro. Cada um sozinho cobre metade, e as
 metades não são as mesmas:
@@ -1094,26 +1100,94 @@ pontuado. Desempenho precisa do desfecho, que chega **dois meses depois**
 mexe nas features é visível na hora; uma que não mexe fica invisível até os
 rótulos chegarem, por pior que seja.
 
-### Medido, com atraso de 2 meses e degradação real definida como gap ≤ -0,015
+### Corrigido duas vezes antes de estar certo
 
-| cenário | meses degradados | 1º degradado | 1º sinal | **meses cego** |
+A primeira versão deste achado reportava **meses cegos**, uma contagem sempre
+não-negativa. Isso **escondia metade do resultado**: dizia "0 meses cego" tanto
+para um monitor que avisa na hora quanto para um que avisa um mês antes, e não
+são o mesmo monitor.
+
+A métrica agora é assinada:
+
+```
+lead_time_months = primeiro_mês_degradado − primeiro_sinal
+```
+
+**Positivo é aviso antecipado; negativo é cegueira.** O sinal é o achado: o
+**mesmo** monitor, sobre os **mesmos** dados, avisa antes ou depois conforme o
+mecanismo em ação.
+
+A segunda correção foi o limiar. O -0,015 provisório tinha falso alarme medido
+de **0,0%** — seguro e cego, 6,5 desvios abaixo da média nula. Substituído pelo
+percentil 0,5% da distribuição nula do gap (**-0,0056**, falso alarme 0,6%),
+calibrado pelo mesmo método do dia 8. **E isso moveu um número.**
+
+### Com o limiar provisório (-0,015)
+
+| cenário | 1º degradado | 1º alarme de drift | 1º sinal | **lead (meses)** |
 |---|---|---|---|---|
-| `full` | 3, 4, 5, 6 | 3 | **3** | **0** |
-| `composition_only` | nenhum | — | — | 0 |
-| `stress_only` | 3, 4, 5, 6 | 3 | **5** | **2** |
+| `full` | 3 | 2 | 2 | **+1** — aviso antecipado |
+| `composition_only` | — | 2 | — | n/a |
+| `stress_only` | 3 | nunca | 5 | **-2** — cego |
 
-**`full` tem janela cega zero** porque o drift de feature já está disparando no
-mês 3 — os dois mecanismos andam juntos, e o mais rápido dos dois avisa.
+### Com o limiar calibrado (-0,0056)
 
-**`composition_only` nunca degrada.** Zero aqui não é mérito do monitor: não há
-o que ver. O braço grita no painel de drift (PSI 0,93) e mantém o gap em
--0,0028. Vale distinguir "não fiquei cego" de "não havia nada".
+| cenário | 1º degradado | 1º alarme de drift | 1º sinal | **lead (meses)** |
+|---|---|---|---|---|
+| `full` | **1** | 2 | 2 | **-1** — cego |
+| `composition_only` | — | 2 | — | n/a |
+| `stress_only` | **2** | nunca | 4 | **-2** — cego |
 
-**`stress_only` fica dois meses cego.** A degradação começa no mês 3 — gap de
--0,0171, já além do limiar — e nenhuma feature se move: PSI máximo de 0,008,
-doze vezes abaixo do limiar de alerta. O único sinal possível é o rótulo, e o
-rótulo do mês 3 só chega no passo 5. Durante os meses **3 e 4** o modelo está
-medidamente pior e **todo painel está verde**.
+**O `full` trocou de sinal: de +1 para -1.** Não porque o monitor piorou, mas
+porque o limiar provisório era tão conservador que não reconhecia como
+degradação o gap de -0,0091 do mês 1 — que está fora da distribuição nula. Com
+um limiar honesto, a degradação começa **antes** do alarme de drift, e o aviso
+"antecipado" some.
+
+Vale a ressalva: o cruzamento do mês 1 no `full` é de **um lote só**, perto do
+limiar, e com 0,6% de falso alarme por lote há ~4% de chance de ver um falso
+positivo em sete meses. A degradação **sustentada** começa no mês 3 nos dois
+cenários. Uma política de alerta séria exigiria N lotes consecutivos; a métrica
+aqui é deliberadamente crua para não esconder o cruzamento.
+
+O `stress_only` não se mexeu: **-2 em qualquer limiar**, porque nenhum limiar
+de gap muda o fato de que nenhuma feature se move.
+
+### A reversão: não existe cenário em que o monitor chega na frente
+
+Isto refuta uma afirmação que o projeto vinha carregando desde o achado §9, e
+que está escrita lá com estas palavras: drift de features seria um sinal
+**antecedente** útil e insuficiente — chegaria primeiro, e não bastaria. A
+segunda metade continua verdadeira. **A primeira não sobreviveu à medição.**
+
+Com os limiares calibrados, os dois cenários degradados dão lead time negativo:
+
+| cenário | mecanismo | **lead** | leitura |
+|---|---|---|---|
+| `full` | composição **e** estresse | **-1** | o alarme de drift chega um mês **depois** do dano |
+| `stress_only` | só estresse | **-2** | o alarme de drift **nunca** chega |
+
+Não há terceiro caso. `composition_only` drifta e nunca degrada, então não tem
+lead time para medir — o alarme dispara no mês 2 e não há dano nenhum na frente
+dele. Em nenhum braço da simulação o drift de features avisou antes do dano.
+**O melhor resultado do monitor de features não é "cedo": é "um mês tarde".**
+
+### Por que o limiar provisório escondia isso
+
+O -0,015 não errava por pouco: ficava **6,5 desvios-padrão** abaixo da média da
+distribuição nula do gap (média +0,00075, sd 0,00241). Um limiar a 6,5 sd tem
+falso alarme medido de 0,0% e, pelo mesmo motivo, não classifica como
+degradação quase nada que seja real.
+
+O caso concreto é o mês 1 do `full`, com gap de **-0,0091**. Esse valor está
+**fora** da distribuição nula — abaixo do percentil 0,5% (-0,0056), portanto
+detectável com 0,6% de falso alarme — e ao mesmo tempo **acima** do -0,015.
+Ficava na faixa cega entre os dois limiares: real, mas invisível ao limiar
+provisório. Com o mês 1 apagado, o primeiro dano do `full` parecia ser o mês 3,
+o alarme de drift do mês 2 parecia chegar antes dele, e o lead saía **+1**.
+
+O aviso antecipado nunca existiu nos dados. Ele era um artefato de um limiar
+que não enxergava o primeiro dano.
 
 ### Por que o número é exatamente o atraso
 
@@ -1137,3 +1211,10 @@ conceito. Este achado diz **quanto isso custa**, na unidade em que a pergunta é
 feita numa reunião: meses. Uma afirmação qualitativa sobre cobertura virou um
 prazo, e prazo é a forma que a conversa toma quando alguém pergunta "e se
 acontecer?".
+
+E as duas correções ensinam a mesma coisa por caminhos diferentes. Uma métrica
+**clipada em zero** perde informação de um lado só, e o lado perdido foi
+justamente o interessante. Um limiar **não calibrado** parece conservador e é
+cego — o -0,015 fazia o monitor parecer melhor do que é, e a correção piorou o
+número reportado. Métrica que só melhora quando corrigida é métrica que ninguém
+está corrigindo de verdade.

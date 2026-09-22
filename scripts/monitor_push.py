@@ -61,7 +61,48 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--data-dir", type=Path, default=PROCESSED_DATA_DIR)
     parser.add_argument("--batches-dir", type=Path, default=PRODUCTION_DATA_DIR)
     parser.add_argument("--small-demo-rows", type=int, default=400)
+    parser.add_argument(
+        "--no-wipe",
+        action="store_true",
+        help="não apaga os grupos antigos antes de empurrar",
+    )
     return parser
+
+
+def wipe_gateway(gateway: str) -> None:
+    """Delete every group before re-pushing, and verify that it worked.
+
+    The Pushgateway keeps whatever it was last told, forever. A run that stops
+    publishing a series — label metrics for a month whose outcome has not
+    arrived, say — leaves the old one behind, and the dashboard then shows a
+    measurement that the current pipeline would never produce.
+
+    This checks the status code. The earlier version did not, and the admin API
+    is **disabled by default**: every wipe returned 404 in silence and stale
+    groups from older runs survived for days.
+
+    Raises:
+        SystemExit: the gateway refused the wipe, which almost always means it
+            was started without ``--web.enable-admin-api``.
+    """
+    import urllib.error
+    import urllib.request
+
+    request = urllib.request.Request(
+        f"http://{gateway}/api/v1/admin/wipe", method="PUT"
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=10) as response:
+            if response.status not in (200, 202):
+                raise SystemExit(f"wipe recusado: HTTP {response.status}")
+    except urllib.error.HTTPError as error:
+        raise SystemExit(
+            f"wipe recusado: HTTP {error.code}. O Pushgateway precisa subir com "
+            "--web.enable-admin-api (ver docker-compose.monitoring.yml)."
+        ) from error
+    except urllib.error.URLError as error:
+        raise SystemExit(f"Pushgateway inacessível em {gateway}: {error}") from error
+    print(f"grupos antigos apagados de {gateway}")
 
 
 def scenario_dir(batches_dir: Path, scenario: str) -> Path:
@@ -168,12 +209,17 @@ def main() -> None:
     gain_shares, champion_version = champion_context(model)
     reference_features = reference[list(MODEL_FEATURES)]
 
+    if not args.no_wipe:
+        wipe_gateway(args.gateway)
+
     pushed: list[tuple[str, str, str]] = []
     # Per scenario and month, for the blind-window measurement at the end.
     gaps: dict[str, dict[int, float]] = {}
     alarms: dict[str, dict[int, bool]] = {}
 
-    def score_month(batch_id: str, scenario: str, directory: Path) -> str:
+    def score_month(
+        batch_id: str, scenario: str, directory: Path, labels_pending: bool = True
+    ) -> str:
         """Scoring-time metrics: available the day the batch is scored."""
         features = pd.read_parquet(directory / "features.parquet")
         outcome = run_scoring(
@@ -186,6 +232,7 @@ def main() -> None:
             gain_shares=gain_shares,
             champion_version=champion_version,
             gateway=args.gateway,
+            labels_pending=labels_pending,
         )
         pushed.append((scenario, batch_id, outcome.verdict_label))
         worst = (
@@ -245,6 +292,11 @@ def main() -> None:
                 f"month_{step:02d}",
                 scenario,
                 directories[scenario] / f"month_{step:02d}",
+                # Pending at the END of the replay: a batch scored in month m
+                # gets its outcome in m + lag, so the last `lag` months finish
+                # still waiting. That is the blind window as a number on
+                # screen, rather than an absence of data that reads as "fine".
+                labels_pending=step + lag > simulation.n_months,
             )
             alarms.setdefault(scenario, {})[step] = verdict in {"warning", "critical"}
             labelled = step - lag
@@ -277,7 +329,7 @@ def main() -> None:
     small = make_small_demo(
         args.data_dir, args.batches_dir, args.small_demo_rows, model
     )
-    score_month(SMALL_DEMO, "full", small)
+    score_month(SMALL_DEMO, "full", small, labels_pending=False)
     deliver_labels(SMALL_DEMO, "full", small, lag=0)
 
     features, labels, predictions = prepare_dirty(model)
@@ -306,16 +358,16 @@ def main() -> None:
 
     # --- the blind window -------------------------------------------------
     print()
-    print("JANELA CEGA POR CENARIO")
-    print("=======================")
+    print("LEAD TIME POR CENARIO (positivo = aviso antecipado, negativo = cego)")
+    print("=" * 68)
     print(
         f"atraso de rótulo = {lag} meses | "
         f"degradação real = gap <= {config.degradation_gap_threshold}"
     )
     print()
     print(
-        f"{'cenário':18} {'meses degradados':>18} {'1º degradado':>13} "
-        f"{'1º sinal':>9} {'meses cego':>11}"
+        f"{'cenário':18} {'1º degradado':>13} {'1º alarme drift':>16} "
+        f"{'1º sinal':>9} {'lead (meses)':>13}"
     )
     windows = []
     for scenario in SCENARIOS:
@@ -327,19 +379,27 @@ def main() -> None:
             config.degradation_gap_threshold,
         )
         windows.append(window)
-        degraded = ", ".join(str(month) for month in window.degraded_months) or "nenhum"
-        print(
-            f"{scenario:18} {degraded:>18} "
-            f"{window.first_degraded_month!s:>13} "
-            f"{window.first_signal_month!s:>9} {window.months_blind:>11}"
+        lead = window.lead_time_months
+        mark = (
+            "  aviso antecipado"
+            if lead is not None and lead > 0
+            else ("  CEGO" if lead is not None and lead < 0 else "")
         )
-    worst = max(windows, key=lambda w: w.months_blind)
-    if worst.months_blind:
+        rendered = f"{lead:+d}" if lead is not None else "n/a"
+        print(
+            f"{scenario:18} {window.first_degraded_month!s:>13} "
+            f"{window.first_drift_alarm_month!s:>16} "
+            f"{window.first_signal_month!s:>9} {rendered:>13}{mark}"
+        )
+    measured = [w for w in windows if w.lead_time_months is not None]
+    if measured:
+        worst = min(measured, key=lambda w: w.lead_time_months or 0)
         print()
         print(
-            f"Pior caso: `{worst.scenario}` fica {worst.months_blind} "
-            f"mês(es) degradando sem sinal de nenhum tipo "
-            f"(meses {', '.join(str(m) for m in worst.blind_months)})."
+            f"Pior caso: `{worst.scenario}` com lead de "
+            f"{worst.lead_time_months:+d} meses — degradando desde o mês "
+            f"{worst.first_degraded_month} e sem sinal nenhum até o "
+            f"{worst.first_signal_month}."
         )
 
     print()

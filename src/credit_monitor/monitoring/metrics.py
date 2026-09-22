@@ -82,6 +82,23 @@ class ScoringMetrics:
     prediction_psi: float | None = None
     drifted_warning: int | None = None
     drifted_critical: int | None = None
+    labels_pending: bool = False
+    """Whether this batch has been scored but its outcome has not arrived.
+
+    Summed per scenario by a recording rule into ``labels_pending_batches``,
+    which is what puts the blind window on screen instead of leaving it
+    implicit in an absence of data.
+    """
+
+    gain_share_by_feature: dict[str, float] = field(default_factory=dict)
+    """Champion gain share per feature, pushed so alert rules can join on it.
+
+    Severity has to follow impact, not magnitude — the PSI x gain principle of
+    day 7 and the MMD harm-ranking finding of day 8. A rule cannot weigh a
+    drift by the feature's importance unless the importance is a series it can
+    join against.
+    """
+
     psi_by_feature: dict[str, float] = field(default_factory=dict)
     psi_weighted_by_feature: dict[str, float] = field(default_factory=dict)
     violations: dict[tuple[str, str], int] = field(default_factory=dict)
@@ -137,6 +154,10 @@ def build_scoring_registry(metrics: ScoringMetrics) -> CollectorRegistry:
             "instante unix da última execução bem-sucedida",
             metrics.last_success_timestamp_seconds,
         ),
+        "labels_pending": (
+            "1 se o lote foi pontuado e o desfecho ainda não chegou",
+            float(metrics.labels_pending),
+        ),
     }
     # Absent, not zero. A blocked batch has no prediction mean, and publishing
     # 0 would put a plausible-looking number on a dashboard for a batch that
@@ -176,6 +197,19 @@ def build_scoring_registry(metrics: ScoringMetrics) -> CollectorRegistry:
     )
     for feature, value in metrics.psi_weighted_by_feature.items():
         weighted.labels(feature=feature).set(value)
+
+    # Pushed so an alert rule can JOIN on it. Severity has to follow impact,
+    # not magnitude — the PSI x gain principle of day 7 and the MMD
+    # harm-ranking finding of day 8 — and a rule cannot weigh a drift by the
+    # feature's importance unless the importance is itself a series.
+    gain = Gauge(
+        "feature_gain_share",
+        "participação da feature no ganho do campeão",
+        ["feature"],
+        registry=registry,
+    )
+    for feature, value in metrics.gain_share_by_feature.items():
+        gain.labels(feature=feature).set(value)
 
     if metrics.drifted_warning is not None and metrics.drifted_critical is not None:
         drifted = Gauge(
