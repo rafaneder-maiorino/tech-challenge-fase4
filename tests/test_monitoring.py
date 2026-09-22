@@ -302,3 +302,225 @@ def test_logs_carry_the_loki_filter_labels(tmp_path: Path) -> None:
     assert record["scenario"] == "stress_only"
     assert record["stage"] == "drift"
     assert record["status"] == "ok"
+
+
+# --------------------------------------------------------------------------
+# A blocked batch stops the pipeline
+# --------------------------------------------------------------------------
+
+
+class StubClassifier:
+    """Deterministic stand-in, so the test needs no MLflow model."""
+
+    def predict_proba(self, X: pd.DataFrame) -> "object":  # noqa: N803
+        """Constant 7% — the batch is blocked before this matters."""
+        import numpy as np
+
+        positive = np.full(len(X), 0.07)
+        return np.column_stack([1.0 - positive, positive])
+
+
+def blocked_batch(rows: int) -> pd.DataFrame:
+    """A features frame above the sample floor with a blocker-level defect."""
+    raw = make_random_frame(n_rows=rows, n_positive=int(rows * 0.0668))
+    frame = raw.drop(columns=[TARGET_COLUMN])
+    # The 96/98 administrative code: a blocker by the stage-1 severity mapping.
+    frame.loc[0:9, "NumberOfTimes90DaysLate"] = 98
+    frame["income_missing"] = 0
+    return frame
+
+
+def test_a_blocked_batch_above_the_floor_still_short_circuits(
+    config: MonitoringConfig, tmp_path: Path
+) -> None:
+    # 5,000 rows, five times the floor. The 204-row demo batch was blocked AND
+    # under the floor, so `insufficient_sample` masked the missing
+    # short-circuit; at this size nothing hides it. A blocked batch of this
+    # size would otherwise be handed a drift colour computed on rows the
+    # contract had just rejected.
+    from credit_monitor.monitoring.run import run_scoring
+
+    rows = 5000
+    assert rows > config.min_batch_size
+
+    outcome = run_scoring(
+        batch_id="blocked_big",
+        scenario="test",
+        features=blocked_batch(rows),
+        reference=make_random_frame(n_rows=2000, n_positive=134).drop(
+            columns=[TARGET_COLUMN]
+        ),
+        model=StubClassifier(),  # type: ignore[arg-type]
+        config=config,
+        gain_shares={},
+        champion_version="test",
+        gateway=None,
+        log_dir=tmp_path,
+    )
+
+    assert outcome.verdict_label == "blocked"
+    assert outcome.metrics.drift_verdict == m.VERDICT_BLOCKED == -2
+    # Sufficient sample, and still blocked: the two states are independent.
+    assert outcome.metrics.sample_sufficient is True
+
+
+def test_skipped_stages_are_marked_skipped_never_ok(
+    config: MonitoringConfig, tmp_path: Path
+) -> None:
+    from credit_monitor.monitoring.run import run_scoring
+
+    outcome = run_scoring(
+        batch_id="blocked_big",
+        scenario="test",
+        features=blocked_batch(5000),
+        reference=make_random_frame(n_rows=2000, n_positive=134).drop(
+            columns=[TARGET_COLUMN]
+        ),
+        model=StubClassifier(),  # type: ignore[arg-type]
+        config=config,
+        gain_shares={},
+        champion_version="test",
+        gateway=None,
+        log_dir=tmp_path,
+    )
+
+    status = outcome.metrics.stage_status
+    assert status["contract"] == m.STAGE_FAILED == 0
+    # -1, not 0 and certainly not 1: the stage did not fail, it never ran.
+    assert status["drift"] == m.STAGE_SKIPPED == -1
+    assert status["scoring"] == m.STAGE_SKIPPED
+    assert m.STAGE_SKIPPED not in {m.STAGE_OK, m.STAGE_FAILED}
+
+
+def test_no_drift_or_prediction_metrics_are_published_for_a_blocked_batch(
+    config: MonitoringConfig, tmp_path: Path
+) -> None:
+    from credit_monitor.monitoring.run import run_scoring
+
+    outcome = run_scoring(
+        batch_id="blocked_big",
+        scenario="test",
+        features=blocked_batch(5000),
+        reference=make_random_frame(n_rows=2000, n_positive=134).drop(
+            columns=[TARGET_COLUMN]
+        ),
+        model=StubClassifier(),  # type: ignore[arg-type]
+        config=config,
+        gain_shares={},
+        champion_version="test",
+        gateway=None,
+        log_dir=tmp_path,
+    )
+
+    samples = m.registry_samples(m.build_scoring_registry(outcome.metrics))
+
+    # Absent, not zero: a zero would be indistinguishable from a real reading.
+    assert not [key for key in samples if key.startswith("drift_psi")]
+    assert not [key for key in samples if key.startswith("drifted_features")]
+    assert "prediction_mean" not in samples
+    assert "prediction_psi" not in samples
+    # What a blocked batch *does* report: why it was blocked.
+    assert samples["drift_verdict"] == -2
+    assert samples["rows_quarantined"] > 0
+    assert [key for key in samples if key.startswith("contract_violations")]
+
+
+def test_the_blocked_code_is_distinct_from_every_other_verdict() -> None:
+    codes = {
+        m.VERDICT_OK,
+        m.VERDICT_WARNING,
+        m.VERDICT_CRITICAL,
+        m.VERDICT_INSUFFICIENT_SAMPLE,
+        m.VERDICT_BLOCKED,
+    }
+
+    assert len(codes) == 5
+    # Both sentinels sit below the drift ordering, so a dashboard sorting by
+    # the code cannot read either as "less drift than ok".
+    assert m.VERDICT_BLOCKED < m.VERDICT_INSUFFICIENT_SAMPLE < m.VERDICT_OK
+
+
+# --------------------------------------------------------------------------
+# The blind window
+# --------------------------------------------------------------------------
+
+
+def test_the_blind_window_is_zero_when_features_drift_too() -> None:
+    # `full`: the degradation starts at month 3 and the drift rule is already
+    # firing, so nothing is hidden.
+    from credit_monitor.monitoring import blind_window
+
+    window = blind_window.compute(
+        "full",
+        calibration_gap_by_month={0: -0.003, 3: -0.017, 4: -0.021},
+        drift_alarm_by_month={0: False, 3: True, 4: True},
+        label_lag_months=2,
+        degradation_gap_threshold=-0.015,
+    )
+
+    assert window.degraded_months == (3, 4)
+    assert window.months_blind == 0
+    assert window.first_signal_month == 3
+
+
+def test_the_blind_window_equals_the_label_lag_when_no_feature_drifts() -> None:
+    # `stress_only`: P(y|X) moved and P(X) did not, so the only signal is the
+    # outcome — and the outcome is late by construction.
+    from credit_monitor.monitoring import blind_window
+
+    window = blind_window.compute(
+        "stress_only",
+        calibration_gap_by_month={
+            0: -0.003,
+            1: -0.005,
+            2: -0.006,
+            3: -0.017,
+            4: -0.018,
+            5: -0.028,
+            6: -0.034,
+        },
+        drift_alarm_by_month=dict.fromkeys(range(7), False),
+        label_lag_months=2,
+        degradation_gap_threshold=-0.015,
+    )
+
+    assert window.degraded_months == (3, 4, 5, 6)
+    assert window.blind_months == (3, 4)
+    assert window.months_blind == 2
+    assert window.first_degraded_month == 3
+    assert window.first_signal_month == 5
+
+
+def test_a_scenario_that_never_degrades_has_no_blind_window() -> None:
+    # `composition_only`: loud drift, calibration intact. Nothing to be blind
+    # to, which is a different thing from being blind.
+    from credit_monitor.monitoring import blind_window
+
+    window = blind_window.compute(
+        "composition_only",
+        calibration_gap_by_month={0: -0.003, 3: -0.0001, 6: -0.003},
+        drift_alarm_by_month={0: False, 3: True, 6: True},
+        label_lag_months=2,
+        degradation_gap_threshold=-0.015,
+    )
+
+    assert window.degraded_months == ()
+    assert window.months_blind == 0
+    assert window.first_degraded_month is None
+
+
+def test_a_longer_lag_widens_the_blind_window() -> None:
+    from credit_monitor.monitoring import blind_window
+
+    gaps = {month: (-0.03 if month >= 2 else -0.001) for month in range(8)}
+    alarms = dict.fromkeys(range(8), False)
+
+    short = blind_window.compute("s", gaps, alarms, 1, -0.015)
+    long = blind_window.compute("s", gaps, alarms, 4, -0.015)
+
+    assert short.months_blind < long.months_blind
+
+
+def test_the_label_lag_comes_from_the_config(config: MonitoringConfig) -> None:
+    assert config.label_lag_months == 2
+    assert config.degradation_gap_threshold == -0.015
