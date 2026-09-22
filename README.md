@@ -148,6 +148,106 @@ está acontecendo agora e o que deveria acordar alguém"; o MLflow responde "o
 que foi decidido, sobre qual dado, por qual versão do modelo". Reconstruir
 qualquer um dos dois a partir do outro é chute.
 
+## Viés, causalidade e Model Card (etapa 4)
+
+Três documentos fecham a fase de construção. Todos seguem a mesma regra: **toda
+afirmação aponta para um número medido ou é declarada como ausente.**
+
+### [`docs/vies.md`](docs/vies.md) — viés por faixa etária (Art. 6, IX)
+
+O dataset **não tem raça, sexo nem estado civil**, e nada foi simulado para
+preencher a falta — uma disparidade inventada é pior que uma ausente, porque se
+parece com evidência. O eixo medido é **idade**, que é critério protegido em
+crédito por direito próprio.
+
+O limiar de operação foi **escolhido hoje** (0,0804, o KS do campeão ajustado na
+validação), porque até a etapa 3 nenhuma métrica do projeto exigia um corte.
+
+| critério | holdout | mês 6 do `full` |
+|---|---|---|
+| paridade demográfica | 0,3616 | 0,2037 |
+| chances equalizadas | 0,3259 | 0,2139 |
+| **calibração por grupo** | **0,0159** | **0,0264** |
+| *(a causa)* taxa-base entre faixas | 0,0827 | 0,0407 |
+
+Os três **não podem valer ao mesmo tempo** com taxas-base diferentes — e elas
+diferem quatro vezes, de 10,89% na faixa 26-35 a 2,62% na 66+. O sistema
+prioriza **calibração por grupo**, e a razão é o Art. 20 §1: o critério
+apresentado ao titular é um número, e ele precisa significar a mesma coisa
+qualquer que seja a idade de quem o recebe.
+
+Dois resultados que contrariam a expectativa:
+
+1. **A faixa mais prejudicada pelo drift é a mais velha, não a mais jovem.** O
+   mecanismo de composição empurra a carteira para os jovens, e quem sai pior é
+   quem ficou: 66+ com gap de **-0,0730** no mês 6 (IC 95% [-0,1112, -0,0403]),
+   quase três vezes o da faixa 18-25.
+2. **O mecanismo que move a demografia não é o que causa a injustiça.** A
+   ablação separa: `composition_only` estraga a calibração de **uma** faixa;
+   `stress_only` estraga a de **todas as seis**. E o painel de drift enxerga o
+   primeiro (PSI 0,93) e é cego ao segundo (PSI 0,0082).
+
+Daí uma regra de método: **justiça de grupo se reporta com o nível por faixa, não
+só com a diferença entre faixas.** O braço com doze vezes mais dano agregado de
+calibração tem o *menor* spread entre faixas — porque ninguém escapou, e
+diferença é cega para falha de modo comum.
+
+| | |
+|---|---|
+| ![Aprovação por faixa](reports/fairness/approval_by_band.png) | ![Chances equalizadas](reports/fairness/odds_by_band.png) |
+
+![Calibração por faixa](reports/fairness/calibration_by_band.png)
+
+`make bias` reproduz tudo: os três PNG e `reports/fairness/bands.json`, de onde
+sai cada número do documento.
+
+### [`docs/causalidade.md`](docs/causalidade.md) — intervenção, não correlação
+
+Quase toda "análise causal" em produção é uma associação com vocabulário melhor,
+porque falta o passo de desligar o mecanismo e olhar de novo. **Aqui esse passo
+existe:** o processo gerador é nosso, os meses 0 a 6 são gerados quatro vezes com
+a **mesma semente**, e ligar um mecanismo é `do(M)` no sentido de Pearl, com as
+outras vias fechadas por construção.
+
+O documento traz o DAG com **cada aresta rotulada pelo efeito medido**, e mantém
+a refutação em destaque: a história desenhada atribuía a degradação silenciosa à
+inflação nominal, e a intervenção diz que o **estresse domina — -0,0337 contra
+-0,0049 de gap**. A razão é que o campeão tira apenas **2,15%** do ganho da
+renda. **O DAG acertou a direção e errou a magnitude**, e está mantido como foi
+escrito, com a refutação ao lado.
+
+O pagamento prático é uma **tabela de decisão** que identifica o mecanismo pela
+assinatura — drift com calibração intacta é composição, calibração rompida sem
+drift é conceito, nem um nem outro com contrato violado é a origem do dado — com
+cada linha ligada ao runbook que já existe.
+
+E a fronteira, dita explicitamente: os mecanismos foram escolhidos por nós, então
+a análise identifica efeitos **dentro do mundo simulado**. A estrutura causal é
+real; as magnitudes são nossas.
+
+### [`docs/model_card.md`](docs/model_card.md) — o Model Card
+
+Estrutura padrão, e carrega o que costuma ser escondido:
+
+- **a margem do campeão contra o piso de ruído.** +0,0070 de AUC contra ±0,0070
+  de desvio em cinco sementes: **limítrofe** — uma sexta semente poderia inverter
+  a ordem. No KS a vantagem é mais clara (+0,0185), com a ressalva de que o ruído
+  do KS não foi medido;
+- **calibração como argumento de justiça.** A reponderação infla as
+  probabilidades ~14x: o ponto de corte do KS fica em **0,4787** no modelo
+  reponderado e em **0,0804** no calibrado — a mesma decisão, anunciada como 48%
+  num caso e 8% no outro, e é esse número que o Art. 20 §1 apresenta ao titular
+  como "o critério";
+- **as 269 linhas de sentinela excluídas do treino.** Inadimplem a **54,65%** e
+  são exatamente a população para a qual um sistema em produção mais precisa de
+  uma decisão. Contenção de escopo, **não** problema resolvido;
+- **o perfil de degradação:** AUC 0,8601 → 0,7779 e gap -0,0027 → -0,0396 em seis
+  meses, com o *lead time* negativo nos dois cenários — **este monitor nunca
+  avisa antes do dano**;
+- **manutenção:** qual alerta dispara qual decisão, e o fato de que nenhuma
+  decisão que dependa de calibração pode ser tomada antes dos **dois meses** de
+  atraso do rótulo.
+
 ## Governança, privacidade e LGPD (etapa 4)
 
 **Documento completo: [`docs/governanca.md`](docs/governanca.md).**
