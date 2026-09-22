@@ -179,6 +179,49 @@ dos 45s de **A**.
 
 ---
 
+### G. A métrica de justiça que melhora quando o dano piora
+
+> achado #15 · **candidato forte — o único que toca justiça**
+
+| | |
+|---|---|
+| **Número** | `composition_only`: spread entre faixas **0,0258**, gap agregado **-0,0028**. `stress_only`: spread **0,0198**, gap **-0,0337**. **Doze vezes mais dano, menos disparidade.** |
+| **Na tela** | `reports/fairness/calibration_by_band.png` — as seis barras laranja todas para baixo, e a tabela dos dois braços em `docs/vies.md` §8 |
+| **Comando** | `make bias` |
+
+**Falado (~20s):**
+> "Medi justiça por faixa etária dos três jeitos padrão. No braço que causa doze
+> vezes mais dano de calibração, a **disparidade entre faixas é menor**. Uma
+> tabela de justiça com números corretos diria que o cenário pior é o mais
+> justo. O motivo é que toda métrica dessas é uma **diferença**, e diferença não
+> enxerga o que é comum: no braço ruim ninguém escapou, então a diferença entre
+> as faixas quase não se mexeu. Justiça de grupo tem que ser reportada com o
+> **nível** de cada faixa, nunca só com a diferença."
+
+**Por que é forte:** é **a mesma forma dos heróis B, C e E** — uma métrica
+correta que engana quem a lê como se respondesse uma pergunta mais ampla. O AUC
+não vê descalibração; o KS sem correção acende 21,5% dos lotes limpos; o spread
+de calibração melhora quando o dano se generaliza. Três domínios, um padrão, e
+este é o único que fala de justiça — que é o eixo que a rubrica cobra e o que
+uma banca pergunta.
+
+Tem também o segundo número, que é o mesmo erro numa segunda forma: sobre um
+conjunto **fixo** de faixas, a paridade demográfica **melhora** com o drift
+(0,1554 → 0,0753) porque o estresse comprime as taxas-base. O modelo fica pior
+para todo mundo e o indicador de justiça sobe.
+
+**Risco:** exige explicar o que é uma métrica de disparidade antes de mostrar a
+armadilha, e o vídeo já gasta o orçamento de conceito novo em calibração. Cabe
+em 20s **se** o herói A já tiver estabelecido o gap de calibração — o que ele
+estabelece. Candidato número 1 da rodada da etapa 4.
+
+**O irmão menor, se sobrar tempo:** o achado #14 — a faixa 66+ encolhe de 19,4%
+para 6,0% **e** troca de conteúdo (utilização mediana 8,2×, inadimplência 5,7×
+dentro da faixa). Eu previ que o grupo prejudicado seria o mais jovem e errei.
+Vale como **uma frase** dentro de G, não como tomada própria.
+
+---
+
 ## 3. Tomadas de demonstração
 
 Todas precisam **funcionar no momento da gravação**. Rodar a lista inteira antes.

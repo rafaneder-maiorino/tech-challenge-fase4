@@ -57,6 +57,20 @@
 !/reports/drift_tests/summary.md
 !/reports/drift_tests/false_alarm_rate.png
 
+# Exceção: os três gráficos de justiça por faixa etária e o JSON que os
+# sustenta. Os PNG vão no README e no vídeo; o JSON é o que permite conferir
+# cada número de docs/vies.md sem reexecutar nada.
+!/reports/fairness/
+/reports/fairness/*
+!/reports/fairness/approval_by_band.png
+!/reports/fairness/calibration_by_band.png
+!/reports/fairness/odds_by_band.png
+!/reports/fairness/bands.json
+
+# Exceção: o piso de ruído das cinco sementes. É o número contra o qual a margem
+# do campeão é lida no Model Card, e regenerá-lo custa cinco treinos.
+!/reports/seed_noise.json
+
 # Material de referência do curso: PDFs das aulas e o enunciado.
 # Nunca versionar — é conteúdo de terceiros.
 docs/_reference/
