@@ -737,9 +737,15 @@ família de sinal que enxerga drift de conceito.
 
 E é também a mais cara e a mais lenta, porque o rótulo chega meses depois — o
 que é exatamente o motivo de os lotes serem escritos em três arquivos
-separados. Isso faz do drift de features um sinal **antecedente** útil e
-insuficiente: ele chega primeiro e às vezes chega sozinho, e um painel que só
-tenha ele estará verde no pior cenário dos dois.
+separados.
+
+> **Corrigido pelo achado §13.** Esta seção dizia que isso fazia do drift de
+> features um sinal **antecedente** útil e insuficiente — "ele chega primeiro".
+> A medição de lead time refutou a primeira metade: `full` tem lead **-1** e
+> `stress_only` tem **-2**, e em nenhum cenário o alarme de drift chegou antes
+> do dano. O que sobra é a segunda metade, mais forte do que parecia: drift de
+> features é um sinal **insuficiente e atrasado**, e um painel que só tenha ele
+> estará verde no pior cenário dos dois — e atrasado no outro.
 
 Os dois juntos cobrem o quadrado inteiro. Cada um sozinho cobre metade, e as
 metades não são as mesmas:
@@ -1146,6 +1152,42 @@ aqui é deliberadamente crua para não esconder o cruzamento.
 
 O `stress_only` não se mexeu: **-2 em qualquer limiar**, porque nenhum limiar
 de gap muda o fato de que nenhuma feature se move.
+
+### A reversão: não existe cenário em que o monitor chega na frente
+
+Isto refuta uma afirmação que o projeto vinha carregando desde o achado §9, e
+que está escrita lá com estas palavras: drift de features seria um sinal
+**antecedente** útil e insuficiente — chegaria primeiro, e não bastaria. A
+segunda metade continua verdadeira. **A primeira não sobreviveu à medição.**
+
+Com os limiares calibrados, os dois cenários degradados dão lead time negativo:
+
+| cenário | mecanismo | **lead** | leitura |
+|---|---|---|---|
+| `full` | composição **e** estresse | **-1** | o alarme de drift chega um mês **depois** do dano |
+| `stress_only` | só estresse | **-2** | o alarme de drift **nunca** chega |
+
+Não há terceiro caso. `composition_only` drifta e nunca degrada, então não tem
+lead time para medir — o alarme dispara no mês 2 e não há dano nenhum na frente
+dele. Em nenhum braço da simulação o drift de features avisou antes do dano.
+**O melhor resultado do monitor de features não é "cedo": é "um mês tarde".**
+
+### Por que o limiar provisório escondia isso
+
+O -0,015 não errava por pouco: ficava **6,5 desvios-padrão** abaixo da média da
+distribuição nula do gap (média +0,00075, sd 0,00241). Um limiar a 6,5 sd tem
+falso alarme medido de 0,0% e, pelo mesmo motivo, não classifica como
+degradação quase nada que seja real.
+
+O caso concreto é o mês 1 do `full`, com gap de **-0,0091**. Esse valor está
+**fora** da distribuição nula — abaixo do percentil 0,5% (-0,0056), portanto
+detectável com 0,6% de falso alarme — e ao mesmo tempo **acima** do -0,015.
+Ficava na faixa cega entre os dois limiares: real, mas invisível ao limiar
+provisório. Com o mês 1 apagado, o primeiro dano do `full` parecia ser o mês 3,
+o alarme de drift do mês 2 parecia chegar antes dele, e o lead saía **+1**.
+
+O aviso antecipado nunca existiu nos dados. Ele era um artefato de um limiar
+que não enxergava o primeiro dano.
 
 ### Por que o número é exatamente o atraso
 

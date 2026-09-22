@@ -125,6 +125,49 @@ O limiar provisório de -0,015 tinha falso alarme de **0,0%** — seguro e cego,
 6,5 desvios abaixo da média nula. Trocá-lo mudou a janela cega do cenário
 `full` de +1 para **-1** mês.
 
+### 4.3 Falso alarme e atraso, alerta por alerta
+
+**O atraso de um alerta faz parte da sua especificação.** Um alerta é descrito
+por dois números, não um: com que frequência ele grita sem motivo, e quão tarde
+ele chega quando o motivo existe. Reportar só o primeiro é como reportar a
+precisão de um detector sem dizer se ele avisa antes ou depois do incêndio.
+
+As duas colunas de atraso medem coisas diferentes e as duas importam:
+
+- **atraso por construção** — quanto tempo depois de o lote ser **pontuado** o
+  alerta pode, no melhor caso, existir. É zero para tudo que só depende de `X`
+  e é `label_lag_months` = **2 meses** para tudo que depende do desfecho.
+- **atraso medido até o dano** — em quantos meses o primeiro disparo ficou
+  atrás do primeiro lote degradado, nesta simulação. Degradação é
+  `calibration_gap <= -0,0056`: primeiro lote degradado no mês **1** no `full`,
+  mês **2** no `stress_only`, **nunca** no `composition_only`.
+
+| alerta | severidade | falso alarme medido | atraso por construção | atraso até o dano (`full`) | atraso até o dano (`stress_only`) |
+|---|---|---|---|---|---|
+| `ContractBlocked` | critical | **n/a — determinístico** (regra de contrato violada, não teste estatístico) | 0 | n/a — não disparou | n/a — não disparou |
+| `InsufficientSample` | info | **n/a — determinístico** (`batch_size < 1.000`) | 0 | n/a — não disparou | n/a — não disparou |
+| `FeatureDrift` (PSI > 0,10) | warning | **0,0%** em 200 sorteios A/A · < 1,5% a 95% de confiança | 0 | **+1 mês** (dano no 1, 1º disparo no 2) | **nunca disparou** |
+| `FeatureDriftCritical` (PSI > 0,25 **e** ganho ≥ 0,10) | critical | **0,0%** — estritamente mais restrito que o warning, logo ≤ ele | 0 | **+3 meses** (1º disparo no 4) | **nunca disparou** |
+| `PredictionDrift` (`prediction_psi` > 0,10) | warning | **não medido diretamente** — o A/A sorteou PSI de *feature*, não de score; o limiar é herdado, não calibrado | 0 | **+2 meses** (1º disparo no 3) | **nunca disparou** |
+| `CalibrationGapBreach` (gap ≤ -0,0056) | critical | **0,6%** — percentil 0,5% de 500 sorteios | **2 meses** | **0 lotes, 2 meses** — acerta o lote do dano (mês 1), mas só existe 2 meses depois | **0 lotes, 2 meses** — acerta o mês 2, existe no 4 |
+| `AUCDrop` (AUC ≤ 0,8372) | warning | **1,0%** — percentil 1% de 500 sorteios | **2 meses** | **+2 lotes, +2 meses** (1º disparo no lote 3) | **0 lotes, 2 meses** (1º disparo no lote 2) |
+| `LabelsPending` | info | **n/a — determinístico** (contagem de lotes sem desfecho) | 0 | n/a — mede o atraso, não o dano | n/a |
+
+Três leituras saem da tabela:
+
+1. **Nenhum alerta chega antes do dano.** O melhor caso é o `FeatureDrift` do
+   `full`, com **um mês de atraso**. No `stress_only` os três alertas sem rótulo
+   **nunca disparam** e os dois com rótulo pagam os dois meses de atraso
+   inteiros. É o achado §13: lead time **-1** e **-2**, nenhum positivo.
+2. **O alerta mais confiável é o mais lento.** `CalibrationGapBreach` é o único
+   que acerta o lote exato do dano nos dois cenários degradados — e é
+   exatamente o que não pode ser adiantado por limiar nenhum, porque o que
+   falta é o desfecho.
+3. **O `PredictionDrift` é o mais fraco dos três sem rótulo**, e não por
+   atraso: o falso alarme dele **não foi medido**. Ele herda um limiar
+   calibrado para outra quantidade. Fica documentado como dívida, não como
+   número.
+
 ---
 
 ## 5. Por que estas e não outras

@@ -214,7 +214,9 @@ O corolário é que **monitoramento baseado em rótulo é obrigatório**, não u
 complemento: rótulos com atraso, gap de calibração, Brier por lote. É a única
 família de sinal que enxerga drift de conceito. E é também a mais cara e a mais
 lenta — o rótulo chega meses depois — o que faz do drift de features um sinal
-*antecedente* útil e insuficiente, nunca um substituto.
+*insuficiente e atrasado*, nunca um substituto. (A etapa 3 mediu o atraso: lead
+time **-1** mês no `full` e **-2** no `stress_only`. Em nenhum cenário o alarme
+de drift chegou antes do dano — achado §13 em `docs/findings.md`.)
 
 Os dois juntos cobrem o quadrado inteiro; cada um sozinho cobre metade.
 
