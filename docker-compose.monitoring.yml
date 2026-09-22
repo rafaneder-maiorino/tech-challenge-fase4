@@ -46,6 +46,11 @@ services:
       # todos os grupos empurrados e o dashboard fica vazio sem explicação.
       - --persistence.file=/data/pushgateway.store
       - --persistence.interval=1m
+      # Necessário para apagar grupos obsoletos antes de reempurrar. Sem isto
+      # o endpoint de wipe devolve 404 — e devolvia em silêncio, deixando
+      # séries de execuções antigas na tela. Stack local de avaliação; num
+      # ambiente exposto isto exigiria autenticação na frente.
+      - --web.enable-admin-api
     volumes:
       - pushgateway-data:/data
     networks: [observability]
