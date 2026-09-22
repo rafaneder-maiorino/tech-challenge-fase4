@@ -20,6 +20,11 @@ from typing import Any
 from credit_monitor.constants import PROJECT_ROOT
 
 OUT = PROJECT_ROOT / "monitoring" / "grafana" / "dashboards"
+# The last batch whose labels have arrived. The simulation runs months 0..6 and
+# `label_lag_months` is 2, so 5 and 6 are scored but never labelled. Anything
+# label-based on a fixed month has to point here or it renders empty.
+LAST_LABELLED = "month_04"
+
 PROM: dict[str, str] = {"type": "prometheus", "uid": "prometheus"}
 LOKI: dict[str, str] = {"type": "loki", "uid": "loki"}
 SCENARIOS = ("full", "composition_only", "stress_only")
@@ -295,9 +300,17 @@ def build_overview() -> dict[str, Any]:
                 VERDICT_MAP,
                 legend="veredito",
             ),
+            # Month 4, not month 6, and this is the label lag made visible.
+            # Drift exists at scoring time; AUC and the calibration gap need
+            # the outcome, which arrives `label_lag_months` = 2 later — so
+            # month 6 has no labelled metrics and never will inside a
+            # seven-month run. Pinned to month 6, these two panels read "No
+            # data" forever. They did not look broken for a while only because
+            # the Pushgateway was serving stale series from earlier runs; the
+            # day-10 wipe fix is what exposed them.
             stat(
-                f"{scenario} · gap de calibração (mês 6)",
-                f'calibration_gap{{scenario="{scenario}",batch_id="month_06"}}',
+                f"{scenario} · gap de calibração (mês 4, último com rótulo)",
+                f'calibration_gap{{scenario="{scenario}",batch_id="{LAST_LABELLED}"}}',
                 6,
                 y,
                 6,
@@ -306,8 +319,8 @@ def build_overview() -> dict[str, Any]:
                 legend="gap",
             ),
             stat(
-                f"{scenario} · AUC (mês 6)",
-                f'auc{{scenario="{scenario}",batch_id="month_06"}}',
+                f"{scenario} · AUC (mês 4, último com rótulo)",
+                f'auc{{scenario="{scenario}",batch_id="{LAST_LABELLED}"}}',
                 12,
                 y,
                 6,

@@ -154,10 +154,16 @@ publish-reports:
 
 # Teste A/A: amostras do holdout contra a referência, onde todo alarme é falso.
 # Determinístico pela semente. `--reuse` aproveita o cache em data/drift_tests.
-aa-test:
+# DEPENDE de `mmd`, e a ordem não é negociável: `aa_test.py` é quem escreve
+# reports/drift_tests/summary.md, e ele só preenche a seção de MMD se o cache
+# em data/drift_tests/ já existir. Rodando `aa-test` antes de `mmd`, o resumo
+# sai com o texto "_Rode `make mmd` para preencher esta seção._" no lugar da
+# tabela — que foi exatamente o que aconteceu no teste de clone limpo.
+aa-test: mmd
 	uv run python scripts/aa_test.py
 
 # MMD nos lotes, A/A do próprio MMD e localização por par de features.
+# Escreve só o cache em data/drift_tests/; quem monta o resumo é o aa-test.
 mmd:
 	uv run python scripts/mmd_test.py
 
