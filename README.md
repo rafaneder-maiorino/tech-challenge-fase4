@@ -72,7 +72,7 @@ não vem no repositório.
 | 4 | `make prepare` | `reference.parquet` + `holdout.parquet` | 2 | 2 s |
 | 5 | `make train` | **campeão** no MLflow, alias `@champion` | 4 | 18 s |
 | 6 | `make simulate` | `data/production/month_00..06` + `reports/simulation/` | **5** | 6 s |
-| 7 | `make dirty-batch` | `data/dirty/batch_<data>.parquet`, o lote bloqueado que o `monitor-all` empurra | 2 | 2 s |
+| 7 | `make dirty-batch` | `data/dirty/batch_<data>.parquet`, o lote bloqueado que o `monitor-all` empurra | 2 | 1 s |
 | 8 | `make drift-reports` | `reports/evidently/_build/` | 6 | 23 s |
 | 9 | `make aa-test` | `reports/drift_tests/` (puxa `mmd` antes) | 6 | 155 s |
 | 10 | `make bias` | `reports/fairness/` + 3 PNG | 6 | 7 s |
