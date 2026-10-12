@@ -36,6 +36,7 @@ import pandas as pd
 from sklearn.model_selection import train_test_split
 
 from credit_monitor.constants import PROCESSED_DATA_DIR, TARGET_COLUMN
+from credit_monitor.paths import display_path
 from credit_monitor.contracts.raw import POSITIVE_LABEL
 
 log = logging.getLogger(__name__)
@@ -157,11 +158,11 @@ def persist(
     reference.to_parquet(paths[REFERENCE_NAME], index=False)
     holdout.to_parquet(paths[HOLDOUT_NAME], index=False)
     paths["metadata"].write_text(
-        json.dumps(metadata.to_dict(), indent=2) + "\n", encoding="utf-8"
+        json.dumps(metadata.to_dict(), indent=2) + "\n", encoding="utf-8", newline="\n"
     )
     log.info(
         "split.persisted",
-        extra={**metadata.to_dict(), **{k: str(v) for k, v in paths.items()}},
+        extra={**metadata.to_dict(), **{k: display_path(v) for k, v in paths.items()}},
     )
     return paths
 

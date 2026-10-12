@@ -19,6 +19,8 @@ import logging
 import sys
 from typing import Any
 
+from credit_monitor.paths import DisplayPathFilter, json_default
+
 # Fields the observability stage will parse: timestamp, level, logger name and
 # message. Kept in one constant so a change never drifts between handlers.
 LOG_FORMAT: str = "%(asctime)s | %(levelname)-8s | %(name)s | %(message)s"
@@ -37,6 +39,7 @@ def configure_logging(level: int = logging.INFO) -> None:
     """
     handler = logging.StreamHandler(stream=sys.stderr)
     handler.setFormatter(logging.Formatter(fmt=LOG_FORMAT, datefmt=DATE_FORMAT))
+    handler.addFilter(DisplayPathFilter())
 
     root = logging.getLogger()
     root.handlers.clear()
@@ -78,9 +81,10 @@ class JsonFormatter(logging.Formatter):
         )
         if record.exc_info:
             payload["exception"] = self.formatException(record.exc_info)
-        # default=str so a Path, a Decimal or an Enum in `extra=` degrades to
-        # its string form instead of killing the log line that reports a failure.
-        return json.dumps(payload, default=str)
+        # A Decimal or an Enum in `extra=` degrades to its string form instead
+        # of killing the log line that reports a failure; a Path becomes
+        # repository-relative with forward slashes, the same on every OS.
+        return json.dumps(payload, default=json_default)
 
 
 def configure_json_logging(level: int = logging.INFO) -> None:
@@ -94,6 +98,7 @@ def configure_json_logging(level: int = logging.INFO) -> None:
     """
     handler = logging.StreamHandler(stream=sys.stderr)
     handler.setFormatter(JsonFormatter())
+    handler.addFilter(DisplayPathFilter())
 
     root = logging.getLogger()
     root.handlers.clear()

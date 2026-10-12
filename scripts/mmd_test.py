@@ -26,6 +26,7 @@ from credit_monitor.drift_tests.mmd import (
     run_self_aa,
 )
 from credit_monitor.logging_config import configure_logging
+from credit_monitor.paths import display_path
 
 log = logging.getLogger(__name__)
 
@@ -121,6 +122,7 @@ def main() -> None:
             indent=2,
         ),
         encoding="utf-8",
+        newline="\n",
     )
 
     print()
@@ -154,7 +156,10 @@ def main() -> None:
                 f"p={pair['pvalue']:.4f}{hit}"
             )
     print()
-    print(f"Cache em {args.cache_dir} | relatorio: {REPORTS_DIR / 'drift_tests'}")
+    print(
+        f"Cache em {display_path(args.cache_dir)} | "
+        f"relatorio: {display_path(REPORTS_DIR / 'drift_tests')}"
+    )
     print()
 
 

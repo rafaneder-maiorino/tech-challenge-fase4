@@ -16,6 +16,7 @@ from credit_monitor.drift_tests.aa import REPEATS, AAResult, run_aa
 from credit_monitor.drift_tests.sensitivity import run_sweep
 from credit_monitor.logging_config import configure_logging
 from credit_monitor.models.score import load_champion
+from credit_monitor.paths import display_path
 from credit_monitor.reporting import drift_tests_report as report
 from credit_monitor.reporting.drift_tests_chart import render_false_alarm_chart
 
@@ -229,7 +230,7 @@ mediria só ela. É a lição dos achados §4, §6 e §8 aplicada a kernels.
   localização por par, senão ele diz que algo mudou sem dizer o quê.
 - Nenhum limiar univariado é transportável entre tamanhos de lote.
 """
-    (args.out_dir / "summary.md").write_text(content, encoding="utf-8")
+    (args.out_dir / "summary.md").write_text(content, encoding="utf-8", newline="\n")
 
     print()
     print("TAXA DE FALSO ALARME POR LOTE")
@@ -241,7 +242,7 @@ mediria só ela. É a lição dos achados §4, §6 e §8 aplicada a kernels.
     print(report.ks_by_type_table(result))
     print()
     print(f"Grafico : {chart}")
-    print(f"Relatorio: {args.out_dir / 'summary.md'}")
+    print(f"Relatorio: {display_path(args.out_dir / 'summary.md')}")
     print()
 
 

@@ -231,9 +231,15 @@ def label_report(reference: pd.DataFrame, current: pd.DataFrame) -> Snapshot:
 
 
 def save_html(snapshot: Snapshot, path: Path) -> Path:
-    """Write a snapshot to a self-contained HTML file."""
+    """Write a snapshot to a self-contained HTML file.
+
+    Not ``snapshot.save_html``: Evidently opens the file in text mode without
+    ``newline=``, which writes CRLF on Windows. Same HTML, same bytes on macOS.
+    """
     path.parent.mkdir(parents=True, exist_ok=True)
-    snapshot.save_html(str(path))
+    path.write_text(
+        snapshot.get_html_str(as_iframe=False), encoding="utf-8", newline="\n"
+    )
     return path
 
 

@@ -29,6 +29,7 @@ from pathlib import Path
 from typing import Any
 
 from credit_monitor.contracts.severity import Severity
+from credit_monitor.paths import json_default
 
 # How many rejected rows the HTML shows before it stops. The file is meant to
 # be read, not scrolled: a 12-row sample makes the point and the JSON next to
@@ -172,10 +173,13 @@ def write_json_report(result: ValidationResult, directory: Path) -> Path:
     """
     directory.mkdir(parents=True, exist_ok=True)
     path = directory / f"{result.batch_id}.json"
-    # default=str so a Severity, a Scope or a numpy scalar that slipped through
-    # degrades to its string form instead of losing the whole report.
+    # json_default so a Severity, a Scope or a numpy scalar that slipped
+    # through degrades to its string form instead of losing the whole report
+    # (and a path is written with forward slashes, on every OS).
     path.write_text(
-        json.dumps(result.to_dict(), indent=2, default=str) + "\n", encoding="utf-8"
+        json.dumps(result.to_dict(), indent=2, default=json_default) + "\n",
+        encoding="utf-8",
+        newline="\n",
     )
     return path
 
@@ -386,5 +390,5 @@ def write_html_report(result: ValidationResult, directory: Path) -> Path:
     """
     directory.mkdir(parents=True, exist_ok=True)
     path = directory / f"{result.batch_id}.html"
-    path.write_text(render_html(result), encoding="utf-8")
+    path.write_text(render_html(result), encoding="utf-8", newline="\n")
     return path

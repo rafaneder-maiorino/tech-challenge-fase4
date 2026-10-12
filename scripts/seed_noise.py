@@ -30,6 +30,7 @@ from credit_monitor.models.train import (
     CALIBRATION_AND_VALIDATION_FRACTION,
     build_candidates,
 )
+from credit_monitor.paths import display_path
 
 # The same five of the stage-1 cap study, so the AUC column reproduces it.
 SEEDS: Final[tuple[int, ...]] = (20260920, 7, 1234, 99, 555)
@@ -148,8 +149,9 @@ def main(argv: list[str] | None = None) -> int:
             indent=2,
         ),
         encoding="utf-8",
+        newline="\n",
     )
-    print(f"\nEscrito em {args.out}")
+    print(f"\nEscrito em {display_path(args.out)}")
     return 0
 
 

@@ -119,7 +119,7 @@ def persist_expected_checksum(checksum: str) -> None:
             f"{_CONSTANTS_PATH}, found {count}. Restore the line "
             f'`EXPECTED_RAW_SHA256: str = ""` and re-run.'
         )
-    _CONSTANTS_PATH.write_text(patched, encoding="utf-8")
+    _CONSTANTS_PATH.write_text(patched, encoding="utf-8", newline="\n")
     log.info("Recorded expected checksum in %s", _CONSTANTS_PATH)
 
 
