@@ -321,6 +321,29 @@ responde `no configuration file provided: not found`.
 Nenhuma porta 5000: no macOS é do AirPlay Receiver, que **responde** à
 requisição em vez de recusá-la. Toda imagem fixada em versão exata.
 
+### As dashboards
+
+Estas são as três dashboards ao vivo, capturadas da stack rodando sobre os
+dados de `make all`. `make stack-up` seguido de `make monitor-all` as reproduz
+— quem não roda Docker vê aqui o trabalho de observabilidade.
+
+**Visão geral** — o 2x2 da etapa 2 numa tela: `composition_only` com drift
+crítico e calibração intacta (gap -0,000021), `stress_only` com drift ok e o
+modelo degradado (gap -0,018333). AUC e gap são do mês 4, o último com rótulo.
+
+![Dashboard de visão geral](docs/img/grafana-overview.png)
+
+**Detalhe** (`scenario=full`) — pipeline, o mapa de calor de PSI por feature e
+mês, a saúde do modelo só onde o rótulo chegou, e os logs do Loki.
+
+![Dashboard de detalhe, cenário full](docs/img/grafana-drilldown.png)
+
+**Feature** (`scenario=full`, `RevolvingUtilizationOfUnsecuredLines`) — a
+feature de maior drift: PSI de 0,94 no mês 6, mas só 18,89% do ganho do
+campeão, e por isso PSI ponderado de 0,18.
+
+![Dashboard de feature, utilização rotativa](docs/img/grafana-feature.png)
+
 ### Push, não scrape
 
 O trabalho de drift é um lote: roda, reporta, termina. Não há processo de pé
