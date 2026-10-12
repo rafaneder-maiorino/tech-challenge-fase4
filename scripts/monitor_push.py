@@ -42,6 +42,7 @@ from credit_monitor.monitoring.run import (
     run_label_arrival,
     run_scoring,
 )
+from credit_monitor.pipeline.dirty_batch import ensure_dirty_batch
 from credit_monitor.reporting.drift import PREDICTION_COLUMN
 from credit_monitor.simulation.arms import ensure_scenario
 from credit_monitor.simulation.config import SimulationConfig
@@ -141,15 +142,17 @@ def prepare_dirty(model: object) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFra
     dependants-nulls and the int64 age dtype are all left exactly as delivered.
     Those are what the contract has to catch, and a pipeline that cleaned them
     to make its own life easier would be reporting a batch that never existed.
+
+    Written here when ``data/dirty`` is empty, which is the state of every fresh
+    clone: the batch is seeded, so the one generated now is the one
+    ``make validate-bad-batch`` would have produced.
     """
     from credit_monitor.models.score import predict_proba
 
-    candidates = sorted(DIRTY_DATA_DIR.glob("batch_*.parquet"))
-    if not candidates:
-        raise SystemExit(
-            "nenhum lote sujo em data/dirty — rode `make validate-bad-batch`."
-        )
-    raw = pd.read_parquet(candidates[-1])
+    path, written = ensure_dirty_batch(DIRTY_DATA_DIR)
+    if written:
+        print(f"  lote sujo ausente em data/dirty — gerado agora: {path.name}")
+    raw = pd.read_parquet(path)
     income = raw["MonthlyIncome"]
     frame = raw.copy()
     frame[INCOME_MISSING_COLUMN] = (

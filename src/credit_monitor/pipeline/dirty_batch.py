@@ -9,10 +9,9 @@ four duplicates and the manifest says four, the counting is right; if they
 disagree, one of the two is lying and the test says which.
 
 The injection is deliberately separate from the sampling.
-``scripts/make_dirty_batch.py`` does the sampling, from the real parquet,
-seeded. :func:`inject_defects` works on any clean frame, which is what lets the
-tests drive it with a hand-built dozen rows and never touch
-``data/raw/gmsc.parquet``.
+:func:`write_demo_batch` does the sampling, from the real parquet, seeded.
+:func:`inject_defects` works on any clean frame, which is what lets the tests
+drive it with a hand-built dozen rows and never touch ``data/raw/gmsc.parquet``.
 
 The defect that matters most here is ``nested_missingness``: five rows whose
 ``NumberOfDependents`` is null while ``MonthlyIncome`` is present. The
@@ -22,12 +21,22 @@ observed, no column-wise validator would catch it, and an untested rule is a
 comment with a function signature.
 """
 
+import datetime as dt
+import json
+import logging
 from dataclasses import dataclass, field
-from typing import Any
+from pathlib import Path
+from typing import Any, Final, Literal
 
 import pandas as pd
 
-from credit_monitor.constants import DELINQUENCY_COLUMNS, TARGET_COLUMN
+from credit_monitor.constants import (
+    CLEAN_DATA_DIR,
+    DELINQUENCY_COLUMNS,
+    DIRTY_DATA_DIR,
+    RAW_DATA_PATH,
+    TARGET_COLUMN,
+)
 from credit_monitor.contracts.raw import (
     AGE_MAX,
     AGE_MIN,
@@ -36,6 +45,8 @@ from credit_monitor.contracts.raw import (
     REVOLVING_UTILIZATION_MAX,
 )
 from credit_monitor.contracts.severity import Rule
+
+log = logging.getLogger(__name__)
 
 # --------------------------------------------------------------------------
 # How many rows carry each defect, and what is written into them.
@@ -265,3 +276,109 @@ def inject_defects(
         include_blockers=include_blockers,
         injected=injected,
     )
+
+
+# --------------------------------------------------------------------------
+# Writing the demo batch to disk.
+#
+# Two callers: ``scripts/make_dirty_batch.py`` (the gate demonstration) and
+# ``scripts/monitor_push.py``, which pushes the blocked batch as one of its two
+# edge cases. They used to meet only through ``data/dirty/``, and a fresh clone
+# has no ``data/dirty/``: ``make monitor-all`` failed there, and nobody saw it
+# because every machine that ran it had a batch left over from an earlier day.
+# --------------------------------------------------------------------------
+
+# 200 rows: big enough that the stratified positive count is a whole number
+# close to the 6.68% reference, small enough that the HTML report and the
+# quarantine can be read on a projector without scrolling for a minute.
+DEMO_BASE_ROWS: Final[int] = 200
+
+# Fixed, not configurable by accident: "deterministic" means the demo produces
+# the same batch on the presenter's laptop and on the grader's. Only the date
+# in the file name changes from one day to the next; the rows do not.
+DEMO_SEED: Final[int] = 20260920
+
+MISSING_RAW_MESSAGE: Final[str] = (
+    "{path} não existe — rode `make download` antes.\n"
+    "O lote de demonstração é amostrado do dado bruto, que é gitignored.\n"
+    "Ou rode `make all`, que faz a cadeia inteira na ordem certa."
+)
+
+
+@dataclass(frozen=True, slots=True)
+class DemoBatch:
+    """A demo batch as written: where it is and what went into it."""
+
+    batch_id: str
+    path: Path
+    manifest_path: Path
+    manifest: DefectManifest
+
+
+def write_demo_batch(
+    mode: Literal["dirty", "clean"] = "dirty",
+    *,
+    source: Path = RAW_DATA_PATH,
+    out_dir: Path | None = None,
+    rows: int = DEMO_BASE_ROWS,
+    seed: int = DEMO_SEED,
+    today: dt.date | None = None,
+) -> DemoBatch:
+    """Sample a clean base from ``source``, inject the defects, write both files.
+
+    Args:
+        mode: ``dirty`` injects blockers and warnings; ``clean`` only warnings.
+        source: The raw parquet to sample from.
+        out_dir: Destination; ``data/dirty`` or ``data/clean`` by mode.
+        rows: Rows in the clean base, before duplication.
+        seed: Sampler seed.
+        today: Date stamped into the batch id; today's date by default.
+
+    Returns:
+        The batch id, both paths and the manifest.
+
+    Raises:
+        SystemExit: ``source`` does not exist, naming the command that makes it.
+    """
+    if not source.exists():
+        raise SystemExit(MISSING_RAW_MESSAGE.format(path=source))
+
+    include_blockers = mode == "dirty"
+    out_dir = out_dir or (DIRTY_DATA_DIR if include_blockers else CLEAN_DATA_DIR)
+    stamp = (today or dt.date.today()).strftime("%Y%m%d")
+    batch_id = f"batch_{stamp}" if include_blockers else f"clean_batch_{stamp}"
+
+    log.info("Lendo %s", source)
+    base = sample_clean_base(pd.read_parquet(source), n_rows=rows, seed=seed)
+    batch, manifest = inject_defects(base, include_blockers=include_blockers)
+
+    out_dir.mkdir(parents=True, exist_ok=True)
+    batch_path = out_dir / f"{batch_id}.parquet"
+    manifest_path = out_dir / f"{batch_id}.manifest.json"
+    batch.to_parquet(batch_path, index=False)
+    manifest_path.write_text(
+        json.dumps(manifest.to_dict(), indent=2) + "\n", encoding="utf-8"
+    )
+    return DemoBatch(batch_id, batch_path, manifest_path, manifest)
+
+
+def ensure_dirty_batch(
+    dirty_dir: Path = DIRTY_DATA_DIR,
+    *,
+    source: Path = RAW_DATA_PATH,
+    rows: int = DEMO_BASE_ROWS,
+) -> tuple[Path, bool]:
+    """Return the newest dirty batch, writing one first if there is none.
+
+    Lazy on purpose, like ``ensure_scenario``: a batch already on disk is the
+    one ``make validate-bad-batch`` produced and reported on, and replacing it
+    would make the monitor push a batch that differs from the report beside it.
+
+    Returns:
+        The batch path, and whether it was written by this call.
+    """
+    candidates = sorted(dirty_dir.glob("batch_*.parquet"))
+    if candidates:
+        return candidates[-1], False
+    batch = write_demo_batch("dirty", source=source, out_dir=dirty_dir, rows=rows)
+    return batch.path, True
