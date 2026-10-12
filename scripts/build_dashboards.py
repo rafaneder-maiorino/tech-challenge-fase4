@@ -18,6 +18,7 @@ import json
 from typing import Any
 
 from credit_monitor.constants import PROJECT_ROOT
+from credit_monitor.data.preprocess import MODEL_FEATURES
 from credit_monitor.monitoring.config import MonitoringConfig
 
 OUT = PROJECT_ROOT / "monitoring" / "grafana" / "dashboards"
@@ -454,17 +455,30 @@ SCENARIO_VAR: dict[str, Any] = {
     "options": [{"text": s, "value": s, "selected": s == "full"} for s in SCENARIOS],
 }
 
+# The feature list is the model's, fixed in code: a custom variable, not a
+# `label_values(drift_psi, feature)` query. The query version had a default in
+# the JSON and still opened on "No data" in all five panels on Windows: with
+# `refresh: 1` it runs once on dashboard load, and a dashboard opened before
+# `make monitor-all` pushed anything gets an empty list, drops the default and
+# never asks again. A static list cannot be empty.
+#
+# Default: the feature the champion leans on most. NumberOfTimes90DaysLate
+# carries 28.47% of the gain, six points ahead of the next one
+# (NumberOfTime30-59DaysPastDueNotWorse, 22.17%) — a margin the cross-platform
+# XGBoost difference (findings §17) does not come close to moving.
+DEFAULT_FEATURE = "NumberOfTimes90DaysLate"
+assert DEFAULT_FEATURE in MODEL_FEATURES
+
 FEATURE_VAR: dict[str, Any] = {
     "name": "feature",
-    "type": "query",
+    "type": "custom",
     "label": "feature",
-    "datasource": PROM,
-    "query": {"query": "label_values(drift_psi, feature)", "refId": "A"},
-    "refresh": 1,
-    "current": {
-        "text": "RevolvingUtilizationOfUnsecuredLines",
-        "value": "RevolvingUtilizationOfUnsecuredLines",
-    },
+    "query": ",".join(MODEL_FEATURES),
+    "current": {"text": DEFAULT_FEATURE, "value": DEFAULT_FEATURE},
+    "options": [
+        {"text": f, "value": f, "selected": f == DEFAULT_FEATURE}
+        for f in MODEL_FEATURES
+    ],
 }
 
 
@@ -752,7 +766,9 @@ def main() -> None:
     for name, payload in built.items():
         path = OUT / name
         path.write_text(
-            json.dumps(payload, indent=2, ensure_ascii=False) + "\n", encoding="utf-8"
+            json.dumps(payload, indent=2, ensure_ascii=False) + "\n",
+            encoding="utf-8",
+            newline="\n",
         )
         print(f"  {name:20} uid={payload['uid']:14} painéis={len(payload['panels'])}")
 
