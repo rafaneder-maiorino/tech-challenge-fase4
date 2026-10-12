@@ -19,12 +19,31 @@ import logging
 import os
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Final
+from typing import Any, Final, TextIO
 
 from credit_monitor.constants import PROJECT_ROOT
 from credit_monitor.logging_config import JsonFormatter
+from credit_monitor.paths import DisplayPathFilter
 
 LOG_DIR: Final[Path] = PROJECT_ROOT / "logs"
+
+
+class LfFileHandler(logging.FileHandler):
+    r"""A ``FileHandler`` that ends lines with ``\n`` on every OS.
+
+    The stock handler opens its file in text mode with no ``newline=``, so on
+    Windows every JSONL line Alloy ships to Loki would end in ``\r\n``.
+    """
+
+    def _open(self) -> TextIO:
+        return open(
+            self.baseFilename,
+            self.mode,
+            encoding=self.encoding,
+            errors=self.errors,
+            newline="\n",
+        )
+
 
 # The salt has to be stable across runs, or a Loki query cannot follow one row
 # through the pipeline. The default below is committed and therefore **public**:
@@ -99,8 +118,9 @@ class PipelineLogger:
         # otherwise write every line twice.
         for handler in list(logger.handlers):
             logger.removeHandler(handler)
-        handler = logging.FileHandler(path, encoding="utf-8")
+        handler = LfFileHandler(path, encoding="utf-8")
         handler.setFormatter(JsonFormatter())
+        handler.addFilter(DisplayPathFilter())
         logger.addHandler(handler)
         logger.propagate = False
         return cls(batch_id=batch_id, scenario=scenario, path=path, logger=logger)

@@ -45,21 +45,70 @@
       },
       {
         "name": "feature",
-        "type": "query",
+        "type": "custom",
         "label": "feature",
-        "datasource": {
-          "type": "prometheus",
-          "uid": "prometheus"
-        },
-        "query": {
-          "query": "label_values(drift_psi, feature)",
-          "refId": "A"
-        },
-        "refresh": 1,
+        "query": "RevolvingUtilizationOfUnsecuredLines,age,NumberOfTime30-59DaysPastDueNotWorse,DebtRatio,MonthlyIncome,NumberOfOpenCreditLinesAndLoans,NumberOfTimes90DaysLate,NumberRealEstateLoansOrLines,NumberOfTime60-89DaysPastDueNotWorse,NumberOfDependents,income_missing",
         "current": {
-          "text": "RevolvingUtilizationOfUnsecuredLines",
-          "value": "RevolvingUtilizationOfUnsecuredLines"
-        }
+          "text": "NumberOfTimes90DaysLate",
+          "value": "NumberOfTimes90DaysLate"
+        },
+        "options": [
+          {
+            "text": "RevolvingUtilizationOfUnsecuredLines",
+            "value": "RevolvingUtilizationOfUnsecuredLines",
+            "selected": false
+          },
+          {
+            "text": "age",
+            "value": "age",
+            "selected": false
+          },
+          {
+            "text": "NumberOfTime30-59DaysPastDueNotWorse",
+            "value": "NumberOfTime30-59DaysPastDueNotWorse",
+            "selected": false
+          },
+          {
+            "text": "DebtRatio",
+            "value": "DebtRatio",
+            "selected": false
+          },
+          {
+            "text": "MonthlyIncome",
+            "value": "MonthlyIncome",
+            "selected": false
+          },
+          {
+            "text": "NumberOfOpenCreditLinesAndLoans",
+            "value": "NumberOfOpenCreditLinesAndLoans",
+            "selected": false
+          },
+          {
+            "text": "NumberOfTimes90DaysLate",
+            "value": "NumberOfTimes90DaysLate",
+            "selected": true
+          },
+          {
+            "text": "NumberRealEstateLoansOrLines",
+            "value": "NumberRealEstateLoansOrLines",
+            "selected": false
+          },
+          {
+            "text": "NumberOfTime60-89DaysPastDueNotWorse",
+            "value": "NumberOfTime60-89DaysPastDueNotWorse",
+            "selected": false
+          },
+          {
+            "text": "NumberOfDependents",
+            "value": "NumberOfDependents",
+            "selected": false
+          },
+          {
+            "text": "income_missing",
+            "value": "income_missing",
+            "selected": false
+          }
+        ]
       }
     ]
   },

@@ -33,6 +33,7 @@ from credit_monitor.fairness.bands import (
     wilson_interval,
 )
 from credit_monitor.models.score import load_champion, predict_proba
+from credit_monitor.paths import display_path
 from credit_monitor.reporting.fairness_charts import (
     render_approval_chart,
     render_calibration_chart,
@@ -167,7 +168,7 @@ def main(argv: list[str] | None = None) -> int:
         },
     }
     (args.out_dir / "bands.json").write_text(
-        json.dumps(record, indent=2, ensure_ascii=False), encoding="utf-8"
+        json.dumps(record, indent=2, ensure_ascii=False), encoding="utf-8", newline="\n"
     )
 
     render_approval_chart(measured["holdout"], args.out_dir / "approval_by_band.png")
@@ -199,7 +200,7 @@ def main(argv: list[str] | None = None) -> int:
         print(f"  {name:16} " + "  ".join(f"{k}={v:.4f}" for k, v in summary.items()))
 
     print(f"\nLimiar de operação: {threshold:.6f} (KS do campeão {champion})")
-    print(f"Escrito em {args.out_dir}")
+    print(f"Escrito em {display_path(args.out_dir)}")
     return 0
 
 

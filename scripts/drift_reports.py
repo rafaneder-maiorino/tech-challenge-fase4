@@ -28,6 +28,7 @@ from credit_monitor.constants import (
 from credit_monitor.data.preprocess import MODEL_FEATURES
 from credit_monitor.logging_config import configure_logging
 from credit_monitor.models.score import load_champion, predict_proba
+from credit_monitor.paths import display_path
 from credit_monitor.reporting import drift, drift_summary
 from credit_monitor.reporting.drift_summary import CURATED_REPORTS, ReportLink
 from credit_monitor.simulation.config import SimulationConfig
@@ -147,7 +148,7 @@ def main() -> None:
         committed=CURATED_REPORTS,
         out_dir=args.out_dir,
     )
-    (args.out_dir / "summary.md").write_text(content, encoding="utf-8")
+    (args.out_dir / "summary.md").write_text(content, encoding="utf-8", newline="\n")
 
     links = [
         ReportLink(
@@ -159,7 +160,9 @@ def main() -> None:
         for name in CURATED_REPORTS
     ]
     (args.out_dir / "index.html").write_text(
-        drift_summary.index_html(links, dt.date.today().isoformat()), encoding="utf-8"
+        drift_summary.index_html(links, dt.date.today().isoformat()),
+        encoding="utf-8",
+        newline="\n",
     )
 
     print_table(
@@ -187,7 +190,7 @@ def main() -> None:
         print(f"  {name:42} {size:7.2f} MB")
     print(f"  {'TOTAL':42} {total:7.2f} MB")
     print()
-    print(f"Gerado em {args.out_dir} (ignorado pelo git).")
+    print(f"Gerado em {display_path(args.out_dir)} (ignorado pelo git).")
     print("Para versionar o conjunto curado: make publish-reports")
     print()
 

@@ -30,6 +30,7 @@ from credit_monitor.data.preprocess import PreprocessingParams, build_feature_ma
 from credit_monitor.data.split import DEFAULT_SEED, REFERENCE_NAME
 from credit_monitor.logging_config import configure_logging
 from credit_monitor.models.train import SELECTION_METRIC, train, write_summary
+from credit_monitor.paths import display_path
 
 log = logging.getLogger(__name__)
 
@@ -112,7 +113,7 @@ def main() -> None:
         f"calibração {outcome.rows_calibration:,} / "
         f"validação {outcome.rows_validation:,}"
     )
-    print(f"Resumo               : {summary_path}")
+    print(f"Resumo               : {display_path(summary_path)}")
     print(f"MLflow               : {MLFLOW_TRACKING_URI}")
     print(f"  experimento        : {MLFLOW_EXPERIMENT}")
     print(f"  UI                 : make mlflow-ui  (porta {MLFLOW_UI_PORT})")

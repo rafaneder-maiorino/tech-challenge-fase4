@@ -235,7 +235,7 @@ def upsert_section(path: Path, section: str) -> None:
         updated = head + section.strip() + tail
     else:
         updated = text.rstrip() + "\n\n---\n\n" + section.strip() + "\n"
-    path.write_text(updated.rstrip() + "\n", encoding="utf-8")
+    path.write_text(updated.rstrip() + "\n", encoding="utf-8", newline="\n")
 
 
 def build_parser() -> argparse.ArgumentParser:

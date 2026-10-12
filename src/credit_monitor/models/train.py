@@ -64,6 +64,7 @@ from credit_monitor.constants import (
 )
 from credit_monitor.data.preprocess import MODEL_FEATURES
 from credit_monitor.models.metrics import ClassificationMetrics, evaluate
+from credit_monitor.paths import json_default
 
 log = logging.getLogger(__name__)
 
@@ -432,5 +433,9 @@ def write_summary(outcome: TrainingOutcome, path: Path) -> Path:
     """Write the training summary as JSON, for the report and the tests."""
     path.parent.mkdir(parents=True, exist_ok=True)
     payload = outcome.to_dict()
-    path.write_text(json.dumps(payload, indent=2, default=str) + "\n", encoding="utf-8")
+    path.write_text(
+        json.dumps(payload, indent=2, default=json_default) + "\n",
+        encoding="utf-8",
+        newline="\n",
+    )
     return path

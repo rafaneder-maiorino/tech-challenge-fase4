@@ -20,6 +20,7 @@ from credit_monitor.constants import (
     TARGET_COLUMN,
 )
 from credit_monitor.logging_config import configure_logging
+from credit_monitor.paths import display_path
 
 log = logging.getLogger("inspect_data")
 
@@ -407,7 +408,7 @@ def build_report(frame: pd.DataFrame) -> str:
     """Assemble the full markdown report."""
     header = (
         "# Relatório de inspeção — dataset bruto\n\n"
-        f"Fonte: `{RAW_DATA_PATH.relative_to(RAW_DATA_PATH.parents[2])}` "
+        f"Fonte: `{display_path(RAW_DATA_PATH)}` "
         "(OpenML id 45577, *Give-Me-Some-Credit*), lido sem nenhuma limpeza, "
         "imputação ou transformação.\n\n"
         "Este documento apenas **relata números**. Nenhuma linha aqui "
@@ -439,9 +440,9 @@ def main() -> None:
     report = build_report(frame)
 
     REPORTS_DIR.mkdir(parents=True, exist_ok=True)
-    REPORT_PATH.write_text(report, encoding="utf-8")
+    REPORT_PATH.write_text(report, encoding="utf-8", newline="\n")
     log.info("Wrote %s (%d lines)", REPORT_PATH, report.count("\n") + 1)
-    print(f"Relatório escrito em {REPORT_PATH}")
+    print(f"Relatório escrito em {display_path(REPORT_PATH)}")
 
 
 if __name__ == "__main__":

@@ -23,6 +23,7 @@ from credit_monitor.constants import (
 from credit_monitor.data.preprocess import MODEL_FEATURES
 from credit_monitor.logging_config import configure_logging
 from credit_monitor.models.score import CHAMPION_URI, load_champion
+from credit_monitor.paths import display_path
 from credit_monitor.reporting import simulation_report
 from credit_monitor.simulation.config import DEFAULT_CONFIG_PATH, SimulationConfig
 from credit_monitor.simulation.simulate import (
@@ -146,9 +147,9 @@ def main() -> None:
         simulation_report.multivariate_section(multivariate),
     )
     print()
-    print(f"Relatorio : {report_path}")
-    print(f"Metadados : {metadata_path}")
-    print(f"Lotes     : {args.out_dir}/month_XX/")
+    print(f"Relatorio : {display_path(report_path)}")
+    print(f"Metadados : {display_path(metadata_path)}")
+    print(f"Lotes     : {display_path(args.out_dir)}/month_XX/")
     print()
 
 

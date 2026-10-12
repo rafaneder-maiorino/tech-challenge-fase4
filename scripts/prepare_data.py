@@ -36,6 +36,7 @@ from credit_monitor.data.split import (
     stratified_split,
 )
 from credit_monitor.logging_config import configure_logging
+from credit_monitor.paths import display_path
 
 log = logging.getLogger(__name__)
 
@@ -120,7 +121,7 @@ def main() -> None:
     print("Contrato: ModelInputSchema validado nos dois conjuntos. OK")
     print()
     for name, path in paths.items():
-        print(f"  {name:10} {path}")
+        print(f"  {name:10} {display_path(path)}")
     print()
 
 

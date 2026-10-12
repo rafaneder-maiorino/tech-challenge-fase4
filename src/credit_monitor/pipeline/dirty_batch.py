@@ -357,7 +357,7 @@ def write_demo_batch(
     manifest_path = out_dir / f"{batch_id}.manifest.json"
     batch.to_parquet(batch_path, index=False)
     manifest_path.write_text(
-        json.dumps(manifest.to_dict(), indent=2) + "\n", encoding="utf-8"
+        json.dumps(manifest.to_dict(), indent=2) + "\n", encoding="utf-8", newline="\n"
     )
     return DemoBatch(batch_id, batch_path, manifest_path, manifest)
 

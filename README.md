@@ -12,7 +12,7 @@ privacidade (LGPD).
 **As quatro etapas estão entregues.** Contratos de dados e modelo baseline
 (etapa 1), simulação e detecção estatística de drift (etapa 2), stack de
 observabilidade com alertas testados e runbooks (etapa 3), governança, LGPD,
-viés, causalidade e Model Card (etapa 4). Dezesseis achados registrados em
+viés, causalidade e Model Card (etapa 4). Dezessete achados registrados em
 [`docs/findings.md`](docs/findings.md), vários deles refutando decisões
 anteriores do próprio projeto.
 
@@ -78,7 +78,7 @@ não vem no repositório.
 | 10 | `make bias` | `reports/fairness/` + 3 PNG | 6 | 7 s |
 | 11 | `make seed-noise` | `reports/seed_noise.json` | 4 | 5 s |
 | 12 | `make dashboards` | `monitoring/grafana/dashboards/*.json` | — | < 1 s |
-| 13 | `make lint` · `make test` | 251 testes | 1 | 12 s |
+| 13 | `make lint` · `make test` | 258 testes | 1 | 12 s |
 
 **Observabilidade, à parte** porque precisa de Docker:
 
@@ -109,14 +109,22 @@ Num MacBook (Apple Silicon), clone limpo, do zero:
 Com o cache do `uv` frio, o passo 1 leva ~2 min a mais. O download são 3,3 MB
 da rede; o resto é local.
 
-> **`make all` termina com `git status` limpo.** Todo relatório versionado é
-> reproduzido byte a byte a partir do zero — `reports/simulation/`,
-> `reports/drift_tests/`, `reports/fairness/`, `reports/seed_noise.json` e os
-> três JSON das dashboards. Se algo aparecer como modificado depois de um
-> `make all`, é um resultado que mudou, não ruído de execução.
+> **`make all` termina com `git status` limpo — na plataforma em que os
+> relatórios foram gerados.** Lá, todo relatório versionado é reproduzido byte a
+> byte a partir do zero — `reports/simulation/`, `reports/drift_tests/`,
+> `reports/fairness/`, `reports/seed_noise.json` e os três JSON das dashboards.
+> Se algo aparecer como modificado depois de um `make all`, é um resultado que
+> mudou, não ruído de execução.
 >
-> No Windows o `git status` não basta — ver
-> [a checagem byte a byte](#a-checagem-de-reprodutibilidade-no-windows).
+> **Entre plataformas, o que se reproduz são as conclusões, não os bytes.** O
+> XGBoost não é bit a bit idêntico entre macOS ARM e Windows x64: mesma
+> semente, mesmo dado, AUC 0,8561 contra 0,8553. Os arquivos que passam pelo
+> campeão diferem nas últimas casas, e a diferença (0,0008) é uma ordem de
+> grandeza **menor** que o piso de ruído entre sementes (~0,006) — nenhuma
+> conclusão muda. Os que não passam pelo modelo (`reports/inspection.md` e as
+> dashboards) são idênticos em qualquer plataforma. Achado
+> [§17](docs/findings.md); a checagem no Windows está
+> [abaixo](#a-checagem-de-reprodutibilidade-no-windows).
 
 ### Se um comando falhar
 
@@ -141,8 +149,10 @@ Ou rode `make all`, que faz a cadeia inteira na ordem certa.
 
 ### Windows
 
-> **Ainda não validado numa máquina Windows.** O que está aqui foi corrigido a
-> partir de leitura e testado no macOS; as hipóteses abertas estão em
+> **Validado numa máquina Windows x64:** `make all` com todos os testes,
+> `make alerts-test` via Docker, os dois `validate-*` com os códigos de saída
+> certos, a stack inteira, as três dashboards e os *lead times* -1 e -2
+> idênticos aos do macOS. O resultado item a item está em
 > [`docs/windows-notes.md`](docs/windows-notes.md).
 
 **Pré-requisitos**, além do [uv](https://docs.astral.sh/uv/) e do Git:
@@ -171,14 +181,26 @@ Ou rode `make all`, que faz a cadeia inteira na ordem certa.
 | `echo $?` depois de `make validate-bad-batch` | `$LASTEXITCODE` | o alvo sai != 0 de propósito |
 
 O `make` já exporta `PYTHONUTF8=1` para os scripts, então redirecionar a saída
-(`make all > run.log`) não esbarra no `cp1252` do console.
+(`make all > run.log`) não esbarra no `cp1252` do console. E troca o console
+para UTF-8 (`chcp 65001`) ao começar: as mensagens do próprio `make` saíam com
+os acentos quebrados (`an├┤nimo`) no console em cp850. A troca vale para aquele
+console até ele fechar.
 
 #### A checagem de reprodutibilidade no Windows
 
-**Não use `git status` como prova.** O `.gitattributes` força LF e o git
-normaliza o fim de linha *antes* de comparar: um relatório que o Python tenha
-gravado em CRLF aparece como limpo. A comparação tem de ser byte a byte, sem
-os filtros do git. No PowerShell, depois do `make all`:
+Os relatórios versionados foram gerados no macOS, e dois tipos de diferença
+podem aparecer no Windows. Só um deles é defeito:
+
+- **Fim de linha ou caminho com `\`.** Defeito. Toda escrita de texto do
+  projeto fixa `newline="\n"` e todo caminho escrito em relatório, JSON ou log
+  sai com `/` (`tests/test_portability.py` garante as duas coisas).
+- **As últimas casas de um número que passa pelo campeão.** Esperado: o XGBoost
+  não é bit a bit idêntico entre plataformas (achado §17).
+
+O `git status` não separa os dois: ele marca como modificado tanto um arquivo
+só com CRLF (o `git diff` sai vazio, com um aviso de fim de linha) quanto um
+com número diferente. A comparação sem os filtros do git separa. No
+PowerShell, depois do `make all`:
 
 ```powershell
 git ls-files reports monitoring/grafana/dashboards | ForEach-Object {
@@ -194,9 +216,17 @@ git ls-files reports monitoring/grafana/dashboards | while read -r f; do
 done
 ```
 
-Nenhuma linha impressa = os 20 arquivos versionados idênticos ao commit, byte a
-byte. É a mesma checagem que vale no macOS e no Linux; lá o `git status` só
-calha de dar a mesma resposta.
+**Como ler o resultado:**
+
+- `reports/inspection.md` e os três JSON das dashboards **têm de** ficar
+  idênticos — não passam pelo modelo. Um `DIFERE` neles é defeito.
+- `reports/simulation/`, `reports/drift_tests/`, `reports/fairness/` (com os
+  três PNG) e `reports/seed_noise.json` **podem** diferir nas últimas casas. O
+  que tem de valer são as conclusões: o campeão vence a regressão logística em
+  5 de 5 sementes com delta de AUC ~+0,007, e os *lead times* são -1 e -2.
+- O HTML do Evidently não é regenerado pelo `make all`, então não muda.
+
+No macOS, onde os relatórios foram gerados, a mesma checagem imprime nada.
 
 ## Comandos, um a um
 

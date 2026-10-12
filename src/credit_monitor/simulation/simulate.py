@@ -26,6 +26,7 @@ from credit_monitor.models.score import (
     measure,
     predict_proba,
 )
+from credit_monitor.paths import json_default
 from credit_monitor.simulation.config import (
     MechanismToggles,
     PairSpec,
@@ -367,5 +368,9 @@ def write_run_metadata(
             for result in results
         },
     }
-    path.write_text(json.dumps(payload, indent=2, default=str) + "\n", encoding="utf-8")
+    path.write_text(
+        json.dumps(payload, indent=2, default=json_default) + "\n",
+        encoding="utf-8",
+        newline="\n",
+    )
     return path

@@ -53,6 +53,7 @@ from credit_monitor.contracts.failures import (
 )
 from credit_monitor.contracts.severity import RULE_SEVERITY, Severity
 from credit_monitor.logging_config import configure_json_logging
+from credit_monitor.paths import display_path, json_default
 from credit_monitor.reporting.validation_report import (
     Rejection,
     RuleCount,
@@ -270,7 +271,7 @@ def quarantine_rows(
         rejected.to_parquet(rows_path, index=True)
 
     jsonl_path = target / "rejections.jsonl"
-    with jsonl_path.open("w", encoding="utf-8") as handle:
+    with jsonl_path.open("w", encoding="utf-8", newline="\n") as handle:
         for rejection in blocking:
             handle.write(
                 json.dumps(
@@ -283,7 +284,7 @@ def quarantine_rows(
                         "severity": rejection.severity.value,
                         "scope": rejection.scope.value,
                     },
-                    default=str,
+                    default=json_default,
                 )
                 + "\n"
             )
@@ -294,8 +295,8 @@ def quarantine_rows(
             "batch_id": result.batch_id,
             "rows": len(indices),
             "rejections": len(blocking),
-            "rows_path": str(rows_path) if indices else None,
-            "jsonl_path": str(jsonl_path),
+            "rows_path": display_path(rows_path) if indices else None,
+            "jsonl_path": display_path(jsonl_path),
         },
     )
     return target
@@ -333,11 +334,11 @@ def ingest(
     started = time.perf_counter()
     log.info(
         "ingestion.started",
-        extra={"batch_id": batch_id, "source_path": str(path)},
+        extra={"batch_id": batch_id, "source_path": display_path(path)},
     )
 
     frame = load_batch(path)
-    result = validate_batch(frame, batch_id, str(path), schema)
+    result = validate_batch(frame, batch_id, display_path(path), schema)
 
     quarantine_rows(frame, result, quarantine_dir)
     json_path = write_json_report(result, report_dir)
@@ -346,8 +347,8 @@ def ingest(
         "ingestion.report_written",
         extra={
             "batch_id": batch_id,
-            "json_path": str(json_path),
-            "html_path": str(html_path),
+            "json_path": display_path(json_path),
+            "html_path": display_path(html_path),
         },
     )
 

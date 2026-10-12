@@ -38,12 +38,12 @@ from pathlib import Path
 
 from credit_monitor.constants import (
     DIRTY_DATA_DIR,
-    PROJECT_ROOT,
     QUARANTINE_DIR,
     RAW_DATA_PATH,
     VALIDATION_REPORTS_DIR,
 )
 from credit_monitor.logging_config import configure_logging
+from credit_monitor.paths import display_path
 from credit_monitor.pipeline.dirty_batch import (
     DEMO_BASE_ROWS,
     DEMO_SEED,
@@ -96,7 +96,7 @@ def print_manifest(batch_id: str, path: Path, manifest: DefectManifest) -> None:
     """Print the injected-defect manifest as a table."""
     print()
     print(f"Lote gerado: {batch_id}")
-    print(f"  arquivo   : {path}")
+    print(f"  arquivo   : {display_path(path)}")
     print(f"  base limpa: {manifest.rows_in_base} linhas")
     print(f"  entregue  : {manifest.rows_out} linhas")
     print()
@@ -109,14 +109,6 @@ def print_manifest(batch_id: str, path: Path, manifest: DefectManifest) -> None:
     print(f"{'-' * width}  {'-' * 6}")
     print(f"{'total de defeitos':<{width}}  {sum(manifest.injected.values()):>6}")
     print()
-
-
-def _relative(path: Path) -> Path:
-    """``path`` relative to the repository when it is inside it."""
-    try:
-        return path.resolve().relative_to(PROJECT_ROOT)
-    except ValueError:
-        return path
 
 
 def run_gate(batch_id: str, batch_path: Path, blocked_expected: bool) -> int:
@@ -135,12 +127,14 @@ def run_gate(batch_id: str, batch_path: Path, blocked_expected: bool) -> int:
             f">>> ingestão saiu com código {status} — pipeline interrompido, "
             "como esperado"
         )
-        print(f">>> quarentena: {_relative(QUARANTINE_DIR / batch_id)}")
+        print(f">>> quarentena: {display_path(QUARANTINE_DIR / batch_id)}")
     else:
         print(
             f">>> ingestão saiu com código {status} — lote aceito, alertas registrados"
         )
-    print(f">>> relatório : {_relative(VALIDATION_REPORTS_DIR / f'{batch_id}.html')}")
+    print(
+        f">>> relatório : {display_path(VALIDATION_REPORTS_DIR / f'{batch_id}.html')}"
+    )
     return status
 
 
@@ -155,7 +149,7 @@ def main() -> int:
             rows=args.rows,
         )
         verb = "gerado" if written else "já existe, mantido"
-        print(f"Lote sujo {verb}: {_relative(path)}")
+        print(f"Lote sujo {verb}: {display_path(path)}")
         return 0
 
     batch = write_demo_batch(
@@ -166,7 +160,7 @@ def main() -> int:
         seed=args.seed,
     )
     print_manifest(batch.batch_id, batch.path, batch.manifest)
-    print(f"Manifesto: {batch.manifest_path}")
+    print(f"Manifesto: {display_path(batch.manifest_path)}")
     print()
 
     if not args.validate:
