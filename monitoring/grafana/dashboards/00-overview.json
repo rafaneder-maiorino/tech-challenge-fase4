@@ -173,7 +173,7 @@
               }
             ]
           },
-          "decimals": 4
+          "decimals": 6
         },
         "overrides": []
       },
@@ -438,7 +438,7 @@
               }
             ]
           },
-          "decimals": 4
+          "decimals": 6
         },
         "overrides": []
       },
@@ -703,7 +703,7 @@
               }
             ]
           },
-          "decimals": 4
+          "decimals": 6
         },
         "overrides": []
       },

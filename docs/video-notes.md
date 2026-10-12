@@ -263,13 +263,19 @@ tolerável; o nível de risco triplica.
 - `http://localhost:3000/d/cm-feature` — feature
 
 **Na tela, na visão geral:** as três linhas de cenário lado a lado.
-`composition_only` com **crítico** em drift e gap de -0,0028;
-`stress_only` com **ok** em drift e gap de -0,0337. **O 2x2 numa tela só**, com
-os códigos renderizados como texto colorido, nunca como número negativo cru.
+`composition_only` com **crítico** em drift e gap de **-0,000021**;
+`stress_only` com **ok** em drift e gap de **-0,018333**. O gap é o do **mês 4**,
+o último com rótulo (atraso de dois meses) — não os -0,0028 e -0,0337 do mês 6
+da tabela de causalidade, que vêm da simulação e não aparecem nesta tela. Seis
+casas de propósito: com quatro, o -0,0000209 do `composition_only` aparecia como
+"-0,0000", um zero exato que o dado não afirma. **O 2x2 numa tela só**, com os
+códigos renderizados como texto colorido, nunca como número negativo cru.
 
-**Na dashboard de detalhe:** o mapa de calor de PSI por feature e mês (a rampa
-verde→vermelho), e os painéis de saúde do modelo com os **meses 5 e 6
-ausentes** — não zerados. A ausência é o ponto.
+**Na dashboard de detalhe:** o mapa de calor de PSI por feature e mês — meses
+nas colunas, features nas linhas, célula verde/laranja/vermelha pelas faixas
+0,10 e 0,25, a feature que mais derivou no topo. Em `full`, a utilização
+rotativa vai de 0,001 a 0,942. E os painéis de saúde do modelo com os **meses 5
+e 6 ausentes** — não zerados. A ausência é o ponto.
 
 **Por que vale:** é o único artefato que se parece com o que a pessoa usaria de
 verdade. Os HTML do Evidently provam o argumento; a dashboard mostra o produto.

@@ -18,12 +18,20 @@ import json
 from typing import Any
 
 from credit_monitor.constants import PROJECT_ROOT
+from credit_monitor.monitoring.config import MonitoringConfig
 
 OUT = PROJECT_ROOT / "monitoring" / "grafana" / "dashboards"
 # The last batch whose labels have arrived. The simulation runs months 0..6 and
 # `label_lag_months` is 2, so 5 and 6 are scored but never labelled. Anything
 # label-based on a fixed month has to point here or it renders empty.
 LAST_LABELLED = "month_04"
+MONTHS = tuple(f"month_{m:02d}" for m in range(7))
+
+# The calibration gap is shown to six decimals, not four. composition_only's
+# month-4 gap is -0.0000209: at four decimals it reads "-0.0000", which is a
+# claim of exact zero the data does not make. Six keeps the order of magnitude
+# visible on every scenario (full -0.020971, composition_only -0.000021).
+GAP_DECIMALS = 6
 
 PROM: dict[str, str] = {"type": "prometheus", "uid": "prometheus"}
 LOKI: dict[str, str] = {"type": "loki", "uid": "loki"}
@@ -117,8 +125,22 @@ def barchart(
     unit: str | None = None,
     decimals: int = 3,
     legend: str = "{{batch_id}}",
+    rotate: bool = False,
 ) -> dict[str, Any]:
-    """Bars keyed by ``batch_id``, sorted so the months read left to right."""
+    """Bars keyed by ``batch_id``, sorted so the months read left to right.
+
+    ``rotate`` angles the tick labels, for panels a third of the screen wide
+    that also carry ``small_demo`` and ``dirty_batch``: nine ids do not fit
+    level there and run into each other.
+    """
+    options: dict[str, Any] = {
+        "xField": "batch_id",
+        "orientation": "vertical",
+        "showValue": "auto",
+        "legend": {"displayMode": "list", "placement": "bottom"},
+    }
+    if rotate:
+        options["xTickLabelRotation"] = -45
     return {
         "type": "barchart",
         "title": title,
@@ -146,11 +168,173 @@ def barchart(
             },
             "overrides": [],
         },
+        "options": options,
+    }
+
+
+def grouped_barchart(
+    title: str,
+    expr: str,
+    series_label: str,
+    gx: int,
+    gy: int,
+    w: int,
+    h: int,
+    unit: str | None = None,
+    decimals: int | None = 3,
+    stacking: str = "none",
+    rename: dict[str, str] | None = None,
+    colours: dict[str, str] | None = None,
+) -> dict[str, Any]:
+    """One bar group per batch, one series per ``series_label`` value.
+
+    The plain ``barchart`` draws one bar per *series*, so a metric with a second
+    label (stage, level) put ``month_00`` under the axis three times and the
+    labels ran into each other. ``groupingToMatrix`` turns the rows into one row
+    per batch and one column per label value: nine tick labels instead of 25.
+    """
+    matrix_key = f"batch_id\\{series_label}"
+    overrides = [
+        {
+            "matcher": {"id": "byName", "options": name},
+            "properties": [
+                {"id": "color", "value": {"mode": "fixed", "fixedColor": colour}}
+            ],
+        }
+        for name, colour in (colours or {}).items()
+    ]
+    return {
+        "type": "barchart",
+        "title": title,
+        "datasource": PROM,
+        "gridPos": {"x": gx, "y": gy, "w": w, "h": h},
+        "targets": [target(expr, "")],
+        "transformations": [
+            {
+                "id": "groupingToMatrix",
+                "options": {
+                    "rowField": "batch_id",
+                    "columnField": series_label,
+                    "valueField": "Value",
+                    "emptyValue": "null",
+                },
+            },
+            {
+                "id": "organize",
+                "options": {"renameByName": {matrix_key: "lote", **(rename or {})}},
+            },
+            {"id": "sortBy", "options": {"fields": {}, "sort": [{"field": "lote"}]}},
+        ],
+        "fieldConfig": {
+            "defaults": {
+                "unit": unit,
+                "decimals": decimals,
+                "custom": {"lineWidth": 1, "fillOpacity": 80},
+            },
+            "overrides": overrides,
+        },
         "options": {
-            "xField": "batch_id",
+            "xField": "lote",
             "orientation": "vertical",
-            "showValue": "auto",
+            "stacking": stacking,
+            "showValue": "never",
+            # Angled: nine batch ids side by side do not fit level in a third
+            # of the screen width, and this panel goes on screen in the video.
+            "xTickLabelRotation": -45,
+            "xTickLabelSpacing": 0,
             "legend": {"displayMode": "list", "placement": "bottom"},
+        },
+    }
+
+
+def psi_heatmap(
+    title: str, scenario_filter: str, gx: int, gy: int, w: int, h: int
+) -> dict[str, Any]:
+    """PSI per feature (rows) and month (columns), each cell coloured by band.
+
+    A table with coloured cells, not Grafana's heatmap panel. The heatmap panel
+    needs a time or numeric x-axis; with series keyed by ``batch_id`` it fell
+    back to the scrape time, drew 07:30..13:00 across the bottom and no feature
+    on the side — the same trap the module docstring describes, and the one
+    panel that still had it. ``groupingToMatrix`` builds the grid from the
+    instant query directly: ``batch_id`` across, ``feature`` down.
+
+    Colour is the alert bands from configs/monitoring.yaml, not a continuous
+    scale: the question this panel answers is which feature crossed which line
+    in which month, and the bands are where those lines are.
+    """
+    config = MonitoringConfig.load()
+    matrix_key = "feature\\batch_id"
+    return {
+        "type": "table",
+        "title": title,
+        "description": (
+            f"Verde < {config.psi_warn_threshold:.2f} ≤ laranja < "
+            f"{config.psi_alert_threshold:.2f} ≤ vermelho. Linhas ordenadas pelo "
+            "PSI do mês 6: a feature que mais derivou fica no topo."
+        ),
+        "datasource": PROM,
+        "gridPos": {"x": gx, "y": gy, "w": w, "h": h},
+        # Months only: small_demo carries a PSI too, but it is a 200-row batch
+        # whose PSI is mostly sampling noise, and it is not a month.
+        "targets": [target(f'drift_psi{{{scenario_filter},batch_id=~"month_.*"}}', "")],
+        "transformations": [
+            {
+                "id": "groupingToMatrix",
+                "options": {
+                    "rowField": "feature",
+                    "columnField": "batch_id",
+                    "valueField": "Value",
+                    "emptyValue": "null",
+                },
+            },
+            {
+                "id": "organize",
+                "options": {
+                    "renameByName": {matrix_key: "feature"},
+                    # Column order is otherwise the order the series arrive in.
+                    "indexByName": {
+                        matrix_key: 0,
+                        **{month: i + 1 for i, month in enumerate(MONTHS)},
+                    },
+                },
+            },
+        ],
+        "fieldConfig": {
+            "defaults": {
+                "decimals": 3,
+                "color": {"mode": "thresholds"},
+                "thresholds": {
+                    "mode": "absolute",
+                    "steps": [
+                        {"color": "green", "value": None},
+                        {"color": "orange", "value": config.psi_warn_threshold},
+                        {"color": "red", "value": config.psi_alert_threshold},
+                    ],
+                },
+                "custom": {
+                    "align": "center",
+                    # Small enough that the seven months fit beside the feature
+                    # names without a horizontal scrollbar hiding months 5 and 6.
+                    "minWidth": 60,
+                    "cellOptions": {"type": "color-background", "mode": "basic"},
+                },
+            },
+            "overrides": [
+                {
+                    "matcher": {"id": "byName", "options": "feature"},
+                    "properties": [
+                        {"id": "custom.cellOptions", "value": {"type": "auto"}},
+                        {"id": "custom.align", "value": "left"},
+                        {"id": "custom.width", "value": 330},
+                    ],
+                }
+            ],
+        },
+        "options": {
+            "showHeader": True,
+            "cellHeight": "sm",
+            "sortBy": [{"displayName": MONTHS[-1], "desc": True}],
         },
     }
 
@@ -315,7 +499,7 @@ def build_overview() -> dict[str, Any]:
                 y,
                 6,
                 4,
-                decimals=4,
+                decimals=GAP_DECIMALS,
                 legend="gap",
             ),
             stat(
@@ -376,16 +560,18 @@ def build_drilldown() -> dict[str, Any]:
     """Pipeline, drift, model health and logs, filtered by scenario."""
     panels = [
         row("Pipeline", 0),
-        barchart(
-            "Duração por estágio (s)",
+        # No fixed decimals: the stages take tens of milliseconds, and "s" with
+        # three decimals rendered the axis as "80.000 ms".
+        grouped_barchart(
+            "Duração por estágio",
             'stage_duration_seconds{scenario="$scenario"}',
+            "stage",
             0,
             1,
             8,
             7,
             "s",
-            3,
-            "{{batch_id}} · {{stage}}",
+            None,
         ),
         barchart(
             "Linhas em quarentena",
@@ -396,6 +582,7 @@ def build_drilldown() -> dict[str, Any]:
             7,
             None,
             0,
+            rotate=True,
         ),
         table(
             "Violações de contrato por regra e severidade",
@@ -406,78 +593,68 @@ def build_drilldown() -> dict[str, Any]:
             7,
         ),
         row("Drift", 8),
-        {
-            "type": "heatmap",
-            "title": "PSI por feature e mês (mapa de calor)",
-            "datasource": PROM,
-            "gridPos": {"x": 0, "y": 9, "w": 16, "h": 9},
-            "targets": [target('drift_psi{scenario="$scenario"}', "{{feature}}")],
-            "transformations": [
-                {
-                    "id": "labelsToFields",
-                    "options": {
-                        "mode": "columns",
-                        "keepLabels": ["batch_id", "feature"],
-                    },
-                }
-            ],
-            "options": {
-                "calculate": False,
-                "color": {"mode": "scheme", "scheme": "Oranges", "steps": 64},
-                "yAxis": {"axisLabel": "feature"},
-                "cellGap": 2,
-            },
-        },
+        psi_heatmap(
+            "PSI por feature e mês (mapa de calor)",
+            'scenario="$scenario"',
+            0,
+            9,
+            16,
+            13,
+        ),
         barchart(
             "PSI ponderado pelo ganho (o que importa)",
             'batch:drift_psi_weighted:max{scenario="$scenario"}',
             16,
             9,
             8,
-            9,
+            13,
             None,
             4,
+            rotate=True,
         ),
         barchart(
             "PSI do score previsto",
             'prediction_psi{scenario="$scenario"}',
             0,
-            18,
+            22,
             12,
             6,
             None,
             4,
         ),
-        barchart(
+        grouped_barchart(
             "Features em faixa de alerta e crítica",
             'drifted_features{scenario="$scenario"}',
+            "level",
             12,
-            18,
+            22,
             12,
             6,
             None,
             0,
-            "{{batch_id}} · {{level}}",
+            stacking="normal",
+            rename={"warning": "alerta", "critical": "crítico"},
+            colours={"alerta": "orange", "crítico": "red"},
         ),
-        row("Saúde do modelo (só onde o rótulo chegou)", 24),
-        barchart("AUC por mês", 'auc{scenario="$scenario"}', 0, 25, 8, 7, None, 4),
-        barchart("Brier por mês", 'brier{scenario="$scenario"}', 8, 25, 8, 7, None, 4),
+        row("Saúde do modelo (só onde o rótulo chegou)", 28),
+        barchart("AUC por mês", 'auc{scenario="$scenario"}', 0, 29, 8, 7, None, 4),
+        barchart("Brier por mês", 'brier{scenario="$scenario"}', 8, 29, 8, 7, None, 4),
         barchart(
             "Gap de calibração por mês",
             'calibration_gap{scenario="$scenario"}',
             16,
-            25,
+            29,
             8,
             7,
             None,
-            4,
+            GAP_DECIMALS,
         ),
-        row("Logs", 32),
+        row("Logs", 36),
         logs(
             "Logs do pipeline (Loki)",
             '{job="credit-monitor", scenario="$scenario"}',
             0,
-            33,
+            37,
             24,
             10,
         ),

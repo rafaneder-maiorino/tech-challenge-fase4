@@ -72,7 +72,7 @@
     },
     {
       "type": "barchart",
-      "title": "Duração por estágio (s)",
+      "title": "Duração por estágio",
       "datasource": {
         "type": "prometheus",
         "uid": "prometheus"
@@ -90,7 +90,7 @@
             "uid": "prometheus"
           },
           "expr": "stage_duration_seconds{scenario=\"$scenario\"}",
-          "legendFormat": "{{batch_id}} · {{stage}}",
+          "legendFormat": "",
           "instant": true,
           "range": false,
           "format": "table",
@@ -99,16 +99,20 @@
       ],
       "transformations": [
         {
-          "id": "labelsToFields",
+          "id": "groupingToMatrix",
           "options": {
-            "mode": "columns",
-            "keepLabels": [
-              "batch_id",
-              "scenario",
-              "feature",
-              "stage",
-              "level"
-            ]
+            "rowField": "batch_id",
+            "columnField": "stage",
+            "valueField": "Value",
+            "emptyValue": "null"
+          }
+        },
+        {
+          "id": "organize",
+          "options": {
+            "renameByName": {
+              "batch_id\\stage": "lote"
+            }
           }
         },
         {
@@ -117,7 +121,7 @@
             "fields": {},
             "sort": [
               {
-                "field": "batch_id"
+                "field": "lote"
               }
             ]
           }
@@ -126,7 +130,7 @@
       "fieldConfig": {
         "defaults": {
           "unit": "s",
-          "decimals": 3,
+          "decimals": null,
           "custom": {
             "lineWidth": 1,
             "fillOpacity": 80
@@ -135,9 +139,12 @@
         "overrides": []
       },
       "options": {
-        "xField": "batch_id",
+        "xField": "lote",
         "orientation": "vertical",
-        "showValue": "auto",
+        "stacking": "none",
+        "showValue": "never",
+        "xTickLabelRotation": -45,
+        "xTickLabelSpacing": 0,
         "legend": {
           "displayMode": "list",
           "placement": "bottom"
@@ -215,7 +222,8 @@
         "legend": {
           "displayMode": "list",
           "placement": "bottom"
-        }
+        },
+        "xTickLabelRotation": -45
       }
     },
     {
@@ -294,8 +302,9 @@
       "panels": []
     },
     {
-      "type": "heatmap",
+      "type": "table",
       "title": "PSI por feature e mês (mapa de calor)",
+      "description": "Verde < 0.10 ≤ laranja < 0.25 ≤ vermelho. Linhas ordenadas pelo PSI do mês 6: a feature que mais derivou fica no topo.",
       "datasource": {
         "type": "prometheus",
         "uid": "prometheus"
@@ -304,7 +313,7 @@
         "x": 0,
         "y": 9,
         "w": 16,
-        "h": 9
+        "h": 13
       },
       "targets": [
         {
@@ -312,8 +321,8 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "drift_psi{scenario=\"$scenario\"}",
-          "legendFormat": "{{feature}}",
+          "expr": "drift_psi{scenario=\"$scenario\",batch_id=~\"month_.*\"}",
+          "legendFormat": "",
           "instant": true,
           "range": false,
           "format": "table",
@@ -322,27 +331,99 @@
       ],
       "transformations": [
         {
-          "id": "labelsToFields",
+          "id": "groupingToMatrix",
           "options": {
-            "mode": "columns",
-            "keepLabels": [
-              "batch_id",
-              "feature"
-            ]
+            "rowField": "feature",
+            "columnField": "batch_id",
+            "valueField": "Value",
+            "emptyValue": "null"
+          }
+        },
+        {
+          "id": "organize",
+          "options": {
+            "renameByName": {
+              "feature\\batch_id": "feature"
+            },
+            "indexByName": {
+              "feature\\batch_id": 0,
+              "month_00": 1,
+              "month_01": 2,
+              "month_02": 3,
+              "month_03": 4,
+              "month_04": 5,
+              "month_05": 6,
+              "month_06": 7
+            }
           }
         }
       ],
+      "fieldConfig": {
+        "defaults": {
+          "decimals": 3,
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 0.1
+              },
+              {
+                "color": "red",
+                "value": 0.25
+              }
+            ]
+          },
+          "custom": {
+            "align": "center",
+            "minWidth": 60,
+            "cellOptions": {
+              "type": "color-background",
+              "mode": "basic"
+            }
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "feature"
+            },
+            "properties": [
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "auto"
+                }
+              },
+              {
+                "id": "custom.align",
+                "value": "left"
+              },
+              {
+                "id": "custom.width",
+                "value": 330
+              }
+            ]
+          }
+        ]
+      },
       "options": {
-        "calculate": false,
-        "color": {
-          "mode": "scheme",
-          "scheme": "Oranges",
-          "steps": 64
-        },
-        "yAxis": {
-          "axisLabel": "feature"
-        },
-        "cellGap": 2
+        "showHeader": true,
+        "cellHeight": "sm",
+        "sortBy": [
+          {
+            "displayName": "month_06",
+            "desc": true
+          }
+        ]
       }
     },
     {
@@ -356,7 +437,7 @@
         "x": 16,
         "y": 9,
         "w": 8,
-        "h": 9
+        "h": 13
       },
       "targets": [
         {
@@ -416,7 +497,8 @@
         "legend": {
           "displayMode": "list",
           "placement": "bottom"
-        }
+        },
+        "xTickLabelRotation": -45
       }
     },
     {
@@ -428,7 +510,7 @@
       },
       "gridPos": {
         "x": 0,
-        "y": 18,
+        "y": 22,
         "w": 12,
         "h": 6
       },
@@ -502,7 +584,7 @@
       },
       "gridPos": {
         "x": 12,
-        "y": 18,
+        "y": 22,
         "w": 12,
         "h": 6
       },
@@ -513,7 +595,7 @@
             "uid": "prometheus"
           },
           "expr": "drifted_features{scenario=\"$scenario\"}",
-          "legendFormat": "{{batch_id}} · {{level}}",
+          "legendFormat": "",
           "instant": true,
           "range": false,
           "format": "table",
@@ -522,16 +604,22 @@
       ],
       "transformations": [
         {
-          "id": "labelsToFields",
+          "id": "groupingToMatrix",
           "options": {
-            "mode": "columns",
-            "keepLabels": [
-              "batch_id",
-              "scenario",
-              "feature",
-              "stage",
-              "level"
-            ]
+            "rowField": "batch_id",
+            "columnField": "level",
+            "valueField": "Value",
+            "emptyValue": "null"
+          }
+        },
+        {
+          "id": "organize",
+          "options": {
+            "renameByName": {
+              "batch_id\\level": "lote",
+              "warning": "alerta",
+              "critical": "crítico"
+            }
           }
         },
         {
@@ -540,7 +628,7 @@
             "fields": {},
             "sort": [
               {
-                "field": "batch_id"
+                "field": "lote"
               }
             ]
           }
@@ -555,12 +643,46 @@
             "fillOpacity": 80
           }
         },
-        "overrides": []
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "alerta"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "orange"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "crítico"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "red"
+                }
+              }
+            ]
+          }
+        ]
       },
       "options": {
-        "xField": "batch_id",
+        "xField": "lote",
         "orientation": "vertical",
-        "showValue": "auto",
+        "stacking": "normal",
+        "showValue": "never",
+        "xTickLabelRotation": -45,
+        "xTickLabelSpacing": 0,
         "legend": {
           "displayMode": "list",
           "placement": "bottom"
@@ -572,7 +694,7 @@
       "title": "Saúde do modelo (só onde o rótulo chegou)",
       "gridPos": {
         "x": 0,
-        "y": 24,
+        "y": 28,
         "w": 24,
         "h": 1
       },
@@ -588,7 +710,7 @@
       },
       "gridPos": {
         "x": 0,
-        "y": 25,
+        "y": 29,
         "w": 8,
         "h": 7
       },
@@ -662,7 +784,7 @@
       },
       "gridPos": {
         "x": 8,
-        "y": 25,
+        "y": 29,
         "w": 8,
         "h": 7
       },
@@ -736,7 +858,7 @@
       },
       "gridPos": {
         "x": 16,
-        "y": 25,
+        "y": 29,
         "w": 8,
         "h": 7
       },
@@ -783,7 +905,7 @@
       "fieldConfig": {
         "defaults": {
           "unit": null,
-          "decimals": 4,
+          "decimals": 6,
           "custom": {
             "lineWidth": 1,
             "fillOpacity": 80
@@ -806,7 +928,7 @@
       "title": "Logs",
       "gridPos": {
         "x": 0,
-        "y": 32,
+        "y": 36,
         "w": 24,
         "h": 1
       },
@@ -822,7 +944,7 @@
       },
       "gridPos": {
         "x": 0,
-        "y": 33,
+        "y": 37,
         "w": 24,
         "h": 10
       },
