@@ -1445,3 +1445,71 @@ setembro achou a ordem `mmd`/`aa-test`, mas manteve os volumes do Docker; este
 apagou também os volumes e achou o resto. Antes de cada entrega: diretório novo,
 `docker compose -f docker-compose.monitoring.yml down -v`, e o README seguido ao
 pé da letra.
+
+---
+
+## 17. O XGBoost não é bit a bit igual entre plataformas — e as conclusões sobrevivem
+
+**Pós-entrega · 2026-10-12 · teste no Windows, `docs/windows-notes.md` W13**
+
+### O que aconteceu
+
+O teste no Windows x64 rodou o `make all` inteiro e chegou nos mesmos *lead
+times* do macOS (-1 e -2) — mas os relatórios que passam pelo campeão não
+bateram byte a byte com os gerados no macOS ARM. Mesma semente, mesmo dado,
+mesmo `uv.lock`:
+
+| | macOS ARM | Windows x64 |
+|---|---|---|
+| AUC do XGBoost, semente 20260920 | 0,8561 | 0,8553 |
+| idem, com `OMP_NUM_THREADS=1` | — | 0,8557 |
+| regressão logística | idêntica | idêntica |
+
+### A causa, por eliminação
+
+A primeira suspeita era a ordem das reduções paralelas: com vários threads, a
+soma dos gradientes muda de ordem e o ponto flutuante não é associativo. Fixar
+`OMP_NUM_THREADS=1` **não** fez os dois convergirem — produziu um terceiro
+valor, 0,8557. A ordem das threads não explica; o que sobra é o build do
+XGBoost em cada plataforma (compilador, instruções vetoriais, biblioteca
+matemática). A regressão logística, do scikit-learn, sai idêntica nas duas: a
+variação é do XGBoost, não do pipeline.
+
+Os PNG de justiça diferem pelo mesmo motivo — são desenhados a partir das
+previsões do campeão.
+
+### Por que não muda nenhuma conclusão
+
+O que o projeto afirma não é "o AUC é 0,8561"; é que o campeão vence a
+regressão logística por uma margem que o ruído do procedimento não explica.
+Isso se mede nas duas plataformas:
+
+| | macOS ARM | Windows x64 |
+|---|---|---|
+| delta de AUC, XGBoost − logística | +0,0071 | +0,0072 |
+| vitórias do XGBoost nas cinco sementes | 5 de 5 | 5 de 5 |
+| desvio do AUC entre sementes | 0,0063 | 0,0058 |
+
+**A diferença entre plataformas (0,0008) é uma ordem de grandeza menor que o
+piso de ruído entre sementes (~0,006)** que o `make seed-noise` já media. Trocar
+de máquina mexe no modelo menos do que trocar de semente — e trocar de semente
+nunca mudou o vencedor.
+
+### Como está resolvido
+
+Não há o que consertar no código: fixar o build do XGBoost entre plataformas
+não está ao alcance de um projeto. O que mudou foi a afirmação. O README dizia
+que todo relatório versionado se reproduz byte a byte; agora diz que isso vale
+**na plataforma em que os relatórios foram gerados**, e que entre plataformas
+se reproduzem as **conclusões**. Os arquivos que não passam pelo modelo —
+`reports/inspection.md` e os três JSON das dashboards — continuam idênticos em
+qualquer plataforma, e a checagem do Windows no README diz qual é qual.
+
+### O que aprendi disso
+
+"Reproduzível" tem dois sentidos, e o projeto prometia o mais forte sem ter
+medido. Byte a byte é uma garantia de **ambiente**; o que o avaliador precisa é
+a garantia de **conclusão** — que o mesmo procedimento, noutra máquina, chegue ao
+mesmo veredito. A segunda só se demonstra com a escala do ruído na mão: sem o
+piso de 0,006 medido antes, 0,0008 de diferença seria uma dúvida; com ele, é
+uma nota de rodapé.
