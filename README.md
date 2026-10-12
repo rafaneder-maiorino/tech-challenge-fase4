@@ -12,7 +12,7 @@ privacidade (LGPD).
 **As quatro etapas estão entregues.** Contratos de dados e modelo baseline
 (etapa 1), simulação e detecção estatística de drift (etapa 2), stack de
 observabilidade com alertas testados e runbooks (etapa 3), governança, LGPD,
-viés, causalidade e Model Card (etapa 4). Quinze achados registrados em
+viés, causalidade e Model Card (etapa 4). Dezesseis achados registrados em
 [`docs/findings.md`](docs/findings.md), vários deles refutando decisões
 anteriores do próprio projeto.
 
@@ -23,12 +23,18 @@ o modelo nem os dados** — ele traz o código que os produz. A ordem importa: u
 comando fora de ordem falha, e a falha não é o projeto estar quebrado.
 
 ```bash
-make install    # 1. ambiente (uv sync)
-make all        # 2. a cadeia inteira, na ordem certa — ~4,5 min, ~1 GB
+make install      # 1. ambiente (uv sync)
+make all          # 2. a cadeia inteira, na ordem certa — ~4,5 min, ~1 GB
+make stack-up     # 3. observabilidade — só este e o 4 precisam de Docker
+make monitor-all  # 4. empurra as métricas; depende do 2
 ```
 
 É isso. `make all` encadeia tudo abaixo e é o único comando necessário para
-reproduzir cada número citado na documentação.
+reproduzir cada número citado na documentação. Os passos 3 e 4 sobem a camada
+de observabilidade sobre o que o 2 produziu.
+
+**No Windows**, leia [a seção de Windows](#windows) antes do passo 1: o `make`
+não vem com o sistema, e alguns comandos se escrevem de outro jeito.
 
 ### A cadeia de artefatos
 
@@ -44,6 +50,8 @@ flowchart TD
     F --> H["reports/drift_tests/<br/><i>make mmd &rarr; make aa-test</i>"]
     F --> I["reports/fairness/<br/><i>make bias</i>"]
     F --> J["Prometheus + Loki + Grafana<br/><i>make stack-up &rarr; make monitor-all</i>"]
+    B --> K["data/dirty/batch_*.parquet<br/><i>make dirty-batch</i>"]
+    K --> J
     E -.-> I
     E -.-> J
 
@@ -64,12 +72,13 @@ não vem no repositório.
 | 4 | `make prepare` | `reference.parquet` + `holdout.parquet` | 2 | 2 s |
 | 5 | `make train` | **campeão** no MLflow, alias `@champion` | 4 | 18 s |
 | 6 | `make simulate` | `data/production/month_00..06` + `reports/simulation/` | **5** | 6 s |
-| 7 | `make drift-reports` | `reports/evidently/_build/` | 6 | 23 s |
-| 8 | `make aa-test` | `reports/drift_tests/` (puxa `mmd` antes) | 6 | 155 s |
-| 9 | `make bias` | `reports/fairness/` + 3 PNG | 6 | 7 s |
-| 10 | `make seed-noise` | `reports/seed_noise.json` | 4 | 5 s |
-| 11 | `make dashboards` | `monitoring/grafana/dashboards/*.json` | — | < 1 s |
-| 12 | `make lint` · `make test` | 248 testes | 1 | 12 s |
+| 7 | `make dirty-batch` | `data/dirty/batch_<data>.parquet`, o lote bloqueado que o `monitor-all` empurra | 2 | 2 s |
+| 8 | `make drift-reports` | `reports/evidently/_build/` | 6 | 23 s |
+| 9 | `make aa-test` | `reports/drift_tests/` (puxa `mmd` antes) | 6 | 155 s |
+| 10 | `make bias` | `reports/fairness/` + 3 PNG | 6 | 7 s |
+| 11 | `make seed-noise` | `reports/seed_noise.json` | 4 | 5 s |
+| 12 | `make dashboards` | `monitoring/grafana/dashboards/*.json` | — | < 1 s |
+| 13 | `make lint` · `make test` | 251 testes | 1 | 12 s |
 
 **Observabilidade, à parte** porque precisa de Docker:
 
@@ -78,9 +87,11 @@ make stack-up      # Prometheus, Pushgateway, Loki, Alloy, Grafana  (~1 s)
 make monitor-all   # empurra as métricas dos 3 cenários             (~11 s)
 ```
 
-`make monitor-all` depende do passo 6 **e** do 5. Se o Grafana subir vazio,
-falta este comando — as dashboards são provisionadas por arquivo, mas os dados
-chegam por *push*.
+`make monitor-all` depende dos passos 5, 6 **e** 7. O 7 é o único que ele
+supre sozinho: com `data/dirty/` vazio, gera o lote sujo na hora — o mesmo,
+semeado, que `make dirty-batch` e `make validate-bad-batch` produzem. Se o
+Grafana subir vazio, falta este comando — as dashboards são provisionadas por
+arquivo, mas os dados chegam por *push*.
 
 ### Orçamento de execução, medido
 
@@ -103,6 +114,9 @@ da rede; o resto é local.
 > `reports/drift_tests/`, `reports/fairness/`, `reports/seed_noise.json` e os
 > três JSON das dashboards. Se algo aparecer como modificado depois de um
 > `make all`, é um resultado que mudou, não ruído de execução.
+>
+> No Windows o `git status` não basta — ver
+> [a checagem byte a byte](#a-checagem-de-reprodutibilidade-no-windows).
 
 ### Se um comando falhar
 
@@ -125,6 +139,65 @@ Ou rode `make all`, que faz a cadeia inteira na ordem certa.
 >    MLflow parece subir e serve um 403 alheio. Nenhuma porta deste projeto
 >    usa a 5000.
 
+### Windows
+
+> **Ainda não validado numa máquina Windows.** O que está aqui foi corrigido a
+> partir de leitura e testado no macOS; as hipóteses abertas estão em
+> [`docs/windows-notes.md`](docs/windows-notes.md).
+
+**Pré-requisitos**, além do [uv](https://docs.astral.sh/uv/) e do Git:
+
+- **`make`.** Não vem com o Windows, nem com o Git for Windows. Instale um GNU
+  make: `winget install ezwinports.make`, `choco install make` ou
+  `scoop install make`. Os alvos rodam tanto no PowerShell quanto no Git Bash —
+  o Makefile não usa nada de shell POSIX nos alvos do caminho do avaliador.
+- **Docker Desktop com o backend WSL2**, para os passos 3 e 4 e para o
+  `make alerts-test`.
+- **XGBoost:** o *wheel* de Windows já traz o OpenMP, então não há o passo do
+  `libomp` do macOS. Ele depende do *Microsoft Visual C++ Redistributable*
+  (x64); se `make train` falhar ao carregar uma DLL do `xgboost`, é ele que
+  falta.
+- **Caminhos longos:** `git config --global core.longpaths true` antes do
+  clone, e um diretório curto (`C:\src\...`). O `.venv` passa de 260
+  caracteres com facilidade.
+
+**Os comandos que mudam:**
+
+| em vez de | no Windows | por quê |
+|---|---|---|
+| `make stack-up && make monitor-all` | os dois em linhas separadas | `&&` não existe no Windows PowerShell 5.1 |
+| `PAUSE=5 make monitor-replay` | `make monitor-replay PAUSE=5` | atribuição antes do comando é sintaxe de sh; como argumento do make vale em todo shell |
+| `make promtool` | não precisa: `make alerts-test` usa o promtool da imagem do Docker | o download do binário nativo é POSIX e só existe para Linux/macOS |
+| `echo $?` depois de `make validate-bad-batch` | `$LASTEXITCODE` | o alvo sai != 0 de propósito |
+
+O `make` já exporta `PYTHONUTF8=1` para os scripts, então redirecionar a saída
+(`make all > run.log`) não esbarra no `cp1252` do console.
+
+#### A checagem de reprodutibilidade no Windows
+
+**Não use `git status` como prova.** O `.gitattributes` força LF e o git
+normaliza o fim de linha *antes* de comparar: um relatório que o Python tenha
+gravado em CRLF aparece como limpo. A comparação tem de ser byte a byte, sem
+os filtros do git. No PowerShell, depois do `make all`:
+
+```powershell
+git ls-files reports monitoring/grafana/dashboards | ForEach-Object {
+  if ((git hash-object --no-filters $_) -ne (git rev-parse "HEAD:$_")) { "DIFERE: $_" }
+}
+```
+
+No Git Bash:
+
+```bash
+git ls-files reports monitoring/grafana/dashboards | while read -r f; do
+  [ "$(git hash-object --no-filters "$f")" = "$(git rev-parse "HEAD:$f")" ] || echo "DIFERE: $f"
+done
+```
+
+Nenhuma linha impressa = os 20 arquivos versionados idênticos ao commit, byte a
+byte. É a mesma checagem que vale no macOS e no Linux; lá o `git status` só
+calha de dar a mesma resposta.
+
 ## Comandos, um a um
 
 ```bash
@@ -135,6 +208,7 @@ make inspect    # gera reports/inspection.md a partir do dado bruto
 make prepare    # limpa o dado bruto e grava reference + holdout
 make train      # treina os baselines e registra o campeão no MLflow
 make simulate   # gera seis meses de drift, pontua e escreve o resumo
+make dirty-batch # gera o lote sujo que o monitor-all empurra, se ainda não existir
 make lint       # roda o ruff (lint + verificação de formatação)
 make test       # roda a suíte de testes (pytest)
 ```
@@ -188,11 +262,22 @@ de commitar.
 ## Stack de observabilidade (etapa 3)
 
 ```bash
-make stack-up        # Prometheus, Pushgateway, Loki, Alloy e Grafana
-make monitor-all     # empurra as métricas de todos os lotes de uma vez
-make monitor-replay  # mês a mês, com pausa (PAUSE=20 por padrão)
-make stack-down      # derruba, mantendo os volumes
+make stack-up               # Prometheus, Pushgateway, Loki, Alloy e Grafana
+make monitor-all            # empurra as métricas de todos os lotes de uma vez
+make monitor-replay         # mês a mês, com pausa de 20 s
+make monitor-replay PAUSE=5 # outra pausa: como argumento do make, em todo shell
+make stack-down             # derruba, mantendo os volumes
+make alerts-test            # valida e testa as regras com o promtool da imagem fixada
 ```
+
+Para apagar também os dados (volumes) e subir do zero:
+
+```bash
+docker compose -f docker-compose.monitoring.yml down -v
+```
+
+O `-f` é obrigatório: o arquivo não tem o nome padrão, e sem ele o compose
+responde `no configuration file provided: not found`.
 
 | serviço | porta | papel |
 |---|---|---|

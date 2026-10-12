@@ -1374,3 +1374,74 @@ Nenhuma das três está errada. Cada uma responde exatamente à pergunta que lhe
 foi feita, e em cada caso a pergunta não era a que importava. **A falha recorrente
 deste projeto não é escolher métricas ruins — é ler métricas boas como se
 respondessem uma pergunta mais ampla do que a delas.**
+
+---
+
+## 16. Estado de uma execução anterior escondeu uma dependência quebrada — duas vezes
+
+**Pós-entrega · 2026-10-12 · `Makefile`, `scripts/monitor_push.py`**
+
+### O que aconteceu
+
+O ensaio para o teste no Windows seguiu o README ao pé da letra, num clone novo
+e com volumes do Docker vazios. `make all` passou, `git status` saiu limpo — e
+`make monitor-all` morreu depois de empurrar os 21 lotes mensais e o
+`small_demo`:
+
+```
+nenhum lote sujo em data/dirty — rode `make validate-bad-batch`.
+make: *** [monitor-all] Error 1
+```
+
+O caso bloqueado que o monitor empurra é o lote sujo da demonstração do portão,
+e esse lote só existia se alguém tivesse rodado `make validate-bad-batch` antes.
+O README nunca disse isso: o caminho do avaliador era `make all` →
+`make stack-up` → `make monitor-all`, e o `validate-bad-batch` fica fora do
+`make all` por desenho, porque sai com código não-zero.
+
+### Por que ninguém viu
+
+O checkout de trabalho tinha `data/dirty/batch_20260920.parquet`, gerado no dia
+3 da etapa 1 e nunca apagado — `data/` é gitignored, então nenhum clone o traz e
+nenhum `git status` o mostra. Toda execução do `monitor-all` desde a etapa 3
+achou esse arquivo, e a dependência existiu durante semanas sem que nenhuma
+execução dependesse dela de fato.
+
+### A segunda vez
+
+É o mesmo mecanismo da correção do commit `65c5d66`. Os seis painéis de AUC e
+gap da visão geral apontavam para `month_06`, que nunca tem rótulo (atraso de
+dois meses), e não pareciam quebrados porque o Pushgateway servia séries de
+execuções antigas: a admin API estava desligada, o wipe devolvia 404 em
+silêncio, e `auc{batch_id="month_05"}` sobrevivia dias depois. Foi o conserto
+do wipe que expôs os painéis.
+
+Duas vezes, a sobra de uma execução anterior — uma série num volume do Docker,
+um parquet num diretório ignorado — satisfez uma dependência que o código não
+satisfazia.
+
+### Como está resolvido
+
+- `monitor-all` gera o lote sujo quando `data/dirty/` está vazio, pela mesma
+  função (`ensure_dirty_batch`) que o novo `make dirty-batch` chama. É o padrão
+  que o `ensure_scenario` já seguia para os braços da ablação. O lote é semeado,
+  então o gerado na hora é o mesmo que a demonstração do portão produziria; um
+  lote já em disco é mantido, para não divergir do relatório de validação ao
+  lado dele.
+- `make all` passou a incluir `make dirty-batch`, então todo clone novo exercita
+  a geração e chega ao `monitor-all` com o pré-requisito pronto.
+- O caminho do avaliador no README mostra os quatro passos na ordem real, e a
+  tabela da cadeia ganhou o passo 7.
+- Três testes em `tests/test_prerequisites.py`: o lote ausente é gerado, o
+  presente é mantido, e sem dado bruto a mensagem nomeia `make download`.
+
+### O que aprendi disso
+
+**A única checagem que enxerga esse tipo de quebra é rodar de um clone novo,
+com volumes vazios.** Testes de unidade não veem: cada um monta o próprio
+estado. O CI não vê: roda lint e testes, não a cadeia. E a máquina de quem
+desenvolve é exatamente o lugar onde o estado sobrou. O teste de clone limpo de
+setembro achou a ordem `mmd`/`aa-test`, mas manteve os volumes do Docker; este
+apagou também os volumes e achou o resto. Antes de cada entrega: diretório novo,
+`docker compose -f docker-compose.monitoring.yml down -v`, e o README seguido ao
+pé da letra.
