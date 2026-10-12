@@ -18,39 +18,39 @@ Two modes:
     ACCEPTED_WITH_WARNINGS with exit 0 — the run that shows the gate
     discriminating instead of just always failing.
 
-Run as ``uv run python scripts/make_dirty_batch.py [--mode clean]``.
+``--validate`` runs the ingestion gate over the batch just written and exits
+with the gate's code. It is what the two ``validate-*`` targets call. The gate
+used to be chained in the Makefile with ``status=$$?`` and ``exit $$status``,
+which is POSIX shell and fails under ``cmd.exe``; here the batch path also comes
+from the code that wrote it, instead of a date the Makefile rebuilt on its own.
+
+``--if-missing`` writes the dirty batch only when ``data/dirty`` has none. It
+is the ``make dirty-batch`` step of ``make all``, and runs the same function
+``make monitor-all`` falls back on.
+
+Run as ``uv run python scripts/make_dirty_batch.py [--mode clean] [--validate]``.
 """
 
 import argparse
-import datetime as dt
-import json
-import logging
+import subprocess
+import sys
 from pathlib import Path
 
-import pandas as pd
-
 from credit_monitor.constants import (
-    CLEAN_DATA_DIR,
     DIRTY_DATA_DIR,
+    PROJECT_ROOT,
+    QUARANTINE_DIR,
     RAW_DATA_PATH,
+    VALIDATION_REPORTS_DIR,
 )
 from credit_monitor.logging_config import configure_logging
 from credit_monitor.pipeline.dirty_batch import (
+    DEMO_BASE_ROWS,
+    DEMO_SEED,
     DefectManifest,
-    inject_defects,
-    sample_clean_base,
+    ensure_dirty_batch,
+    write_demo_batch,
 )
-
-log = logging.getLogger(__name__)
-
-# 200 rows: big enough that the stratified positive count is a whole number
-# close to the 6.68% reference, small enough that the HTML report and the
-# quarantine can be read on a projector without scrolling for a minute.
-DEFAULT_BASE_ROWS: int = 200
-
-# Fixed, not configurable by accident: "deterministic" means the demo produces
-# the same batch on the presenter's laptop and on the grader's.
-DEFAULT_SEED: int = 20260920
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -65,10 +65,10 @@ def build_parser() -> argparse.ArgumentParser:
         help="dirty injeta bloqueantes e alertas; clean injeta só alertas",
     )
     parser.add_argument(
-        "--rows", type=int, default=DEFAULT_BASE_ROWS, help="linhas da base limpa"
+        "--rows", type=int, default=DEMO_BASE_ROWS, help="linhas da base limpa"
     )
     parser.add_argument(
-        "--seed", type=int, default=DEFAULT_SEED, help="semente do amostrador"
+        "--seed", type=int, default=DEMO_SEED, help="semente do amostrador"
     )
     parser.add_argument(
         "--source", type=Path, default=RAW_DATA_PATH, help="parquet bruto de origem"
@@ -78,6 +78,16 @@ def build_parser() -> argparse.ArgumentParser:
         type=Path,
         default=None,
         help="destino (padrão: data/dirty ou data/clean conforme o modo)",
+    )
+    parser.add_argument(
+        "--validate",
+        action="store_true",
+        help="roda o portão de ingestão sobre o lote e sai com o código dele",
+    )
+    parser.add_argument(
+        "--if-missing",
+        action="store_true",
+        help="só gera o lote sujo se data/dirty não tiver nenhum",
     )
     return parser
 
@@ -101,32 +111,68 @@ def print_manifest(batch_id: str, path: Path, manifest: DefectManifest) -> None:
     print()
 
 
-def main() -> None:
+def _relative(path: Path) -> Path:
+    """``path`` relative to the repository when it is inside it."""
+    try:
+        return path.resolve().relative_to(PROJECT_ROOT)
+    except ValueError:
+        return path
+
+
+def run_gate(batch_id: str, batch_path: Path, blocked_expected: bool) -> int:
+    """Run the ingestion gate in its own process and report what it left behind.
+
+    A subprocess rather than a call to ``ingest.main``: the gate configures JSON
+    logging for itself, and running it in this process would change the format
+    of everything printed after it.
+    """
+    status = subprocess.call(
+        [sys.executable, "-m", "credit_monitor.pipeline.ingest", str(batch_path)]
+    )
+    print()
+    if blocked_expected:
+        print(
+            f">>> ingestão saiu com código {status} — pipeline interrompido, "
+            "como esperado"
+        )
+        print(f">>> quarentena: {_relative(QUARANTINE_DIR / batch_id)}")
+    else:
+        print(
+            f">>> ingestão saiu com código {status} — lote aceito, alertas registrados"
+        )
+    print(f">>> relatório : {_relative(VALIDATION_REPORTS_DIR / f'{batch_id}.html')}")
+    return status
+
+
+def main() -> int:
     configure_logging()
     args = build_parser().parse_args()
 
-    include_blockers = args.mode == "dirty"
-    out_dir = args.out_dir or (DIRTY_DATA_DIR if include_blockers else CLEAN_DATA_DIR)
-    stamp = dt.date.today().strftime("%Y%m%d")
-    batch_id = f"batch_{stamp}" if include_blockers else f"clean_batch_{stamp}"
+    if args.if_missing:
+        path, written = ensure_dirty_batch(
+            args.out_dir or DIRTY_DATA_DIR,
+            source=args.source,
+            rows=args.rows,
+        )
+        verb = "gerado" if written else "já existe, mantido"
+        print(f"Lote sujo {verb}: {_relative(path)}")
+        return 0
 
-    log.info("Lendo %s", args.source)
-    source = pd.read_parquet(args.source)
-    base = sample_clean_base(source, n_rows=args.rows, seed=args.seed)
-    batch, manifest = inject_defects(base, include_blockers=include_blockers)
-
-    out_dir.mkdir(parents=True, exist_ok=True)
-    batch_path = out_dir / f"{batch_id}.parquet"
-    manifest_path = out_dir / f"{batch_id}.manifest.json"
-    batch.to_parquet(batch_path, index=False)
-    manifest_path.write_text(
-        json.dumps(manifest.to_dict(), indent=2) + "\n", encoding="utf-8"
+    batch = write_demo_batch(
+        args.mode,
+        source=args.source,
+        out_dir=args.out_dir,
+        rows=args.rows,
+        seed=args.seed,
     )
-
-    print_manifest(batch_id, batch_path, manifest)
-    print(f"Manifesto: {manifest_path}")
+    print_manifest(batch.batch_id, batch.path, batch.manifest)
+    print(f"Manifesto: {batch.manifest_path}")
     print()
+
+    if not args.validate:
+        return 0
+    return run_gate(batch.batch_id, batch.path, blocked_expected=args.mode == "dirty")
 
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())

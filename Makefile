@@ -2,39 +2,57 @@
 # being active — `make download` behaves the same in a shell, in CI and in a
 # fresh clone. Python version and dependencies come from pyproject.toml and
 # uv.lock; .python-version pins the interpreter.
+#
+# Portável entre sh e cmd.exe, porque no Windows o GNU make roda as receitas no
+# cmd quando não acha um sh.exe no PATH — o caso padrão num PowerShell. Daí:
+# nada de pipeline, `$$?`, aspas simples ou `date` numa receita (lógica com
+# shell mora em scripts/*.py), e mensagens via $(info), não `echo "..."`, que
+# o cmd imprime com as aspas. Ver docs/windows-notes.md.
+
+# `export` é diretiva do make, não do shell: vale em sh e em cmd. Sem isto, o
+# Python no Windows escreve em cp1252 quando a saída é redirecionada
+# (`make all > run.log`) e um `→` impresso derruba o alvo com
+# UnicodeEncodeError. No macOS e no Linux o locale já é UTF-8: nada muda.
+export PYTHONUTF8 := 1
 
 .PHONY: help install download inspect lint test \
         validate-bad-batch validate-clean-batch \
         prepare train recheck-correlation mlflow-ui simulate drift-reports publish-reports aa-test mmd \
-        stack-up stack-down stack-logs monitor-replay monitor-all alerts-test dashboards bias seed-noise all
+        stack-up stack-down stack-urls stack-logs monitor-replay monitor-all \
+        alerts-test promtool dashboards bias seed-noise dirty-batch all all-done
 
 # Default target: `make` with no arguments lists what exists.
+# $(info) imprime ao expandir a receita; o `@exit 0` final existe porque uma
+# receita só de $(info) não roda comando nenhum e o make diria "is up to date".
+# `exit 0` é válido em sh e em cmd.
 help:
-	@echo "Targets disponíveis:"
-	@echo "  make all       - a cadeia inteira na ordem certa (~7 min, ~1 GB) — comece aqui"
-	@echo "  make install   - cria o ambiente e instala as dependências (uv sync)"
-	@echo "  make download  - baixa o dataset bruto do OpenML e verifica o checksum"
-	@echo "  make inspect   - gera reports/inspection.md a partir do dado bruto"
-	@echo "  make validate-bad-batch   - gera um lote com defeitos e mostra o portão BLOQUEANDO (sai != 0)"
-	@echo "  make validate-clean-batch - valida um lote só com alertas: ACEITO COM AVISOS (sai 0)"
-	@echo "  make prepare   - limpa o dado bruto e grava reference + holdout"
-	@echo "  make train     - treina os baselines e registra o campeão no MLflow"
-	@echo "  make recheck-correlation - recalcula a correlação dos contadores e registra o achado"
-	@echo "  make mlflow-ui - abre a UI do MLflow (porta 5001)"
-	@echo "  make simulate  - gera seis meses de drift, pontua e escreve o resumo"
-	@echo "  make drift-reports - gera os relatórios de drift (em reports/evidently/_build, ignorado)"
-	@echo "  make publish-reports - publica o conjunto curado no repositório (ato deliberado)"
-	@echo "  make aa-test   - teste A/A e varredura significância vs magnitude"
-	@echo "  make mmd       - testes MMD, A/A do MMD e localização por par"
-	@echo "  make stack-up  - sobe Prometheus, Pushgateway, Loki, Alloy e Grafana"
-	@echo "  make stack-down- derruba a stack (mantém os volumes)"
-	@echo "  make monitor-all    - empurra as métricas de todos os lotes de uma vez"
-	@echo "  make monitor-replay - empurra mês a mês com pausa, para assistir ao painel"
-	@echo "  make alerts-test - valida e testa as regras de alerta (promtool)"
-	@echo "  make bias      - mede justiça por faixa etária e gera os gráficos da etapa 4"
-	@echo "  make seed-noise - mede o piso de ruído de AUC e KS em cinco sementes"
-	@echo "  make lint      - roda o ruff (lint + formatação)"
-	@echo "  make test      - roda a suíte de testes (pytest)"
+	$(info Targets disponíveis:)
+	$(info make all       - a cadeia inteira na ordem certa (~4,5 min, ~1 GB) — comece aqui)
+	$(info make install   - cria o ambiente e instala as dependências (uv sync))
+	$(info make download  - baixa o dataset bruto do OpenML e verifica o checksum)
+	$(info make inspect   - gera reports/inspection.md a partir do dado bruto)
+	$(info make dirty-batch  - gera o lote sujo de demonstração se ainda não existir)
+	$(info make validate-bad-batch   - gera um lote com defeitos e mostra o portão BLOQUEANDO (sai != 0))
+	$(info make validate-clean-batch - valida um lote só com alertas: ACEITO COM AVISOS (sai 0))
+	$(info make prepare   - limpa o dado bruto e grava reference + holdout)
+	$(info make train     - treina os baselines e registra o campeão no MLflow)
+	$(info make recheck-correlation - recalcula a correlação dos contadores e registra o achado)
+	$(info make mlflow-ui - abre a UI do MLflow (porta 5001))
+	$(info make simulate  - gera seis meses de drift, pontua e escreve o resumo)
+	$(info make drift-reports - gera os relatórios de drift (em reports/evidently/_build, ignorado))
+	$(info make publish-reports - publica o conjunto curado no repositório (ato deliberado))
+	$(info make aa-test   - teste A/A e varredura significância vs magnitude)
+	$(info make mmd       - testes MMD, A/A do MMD e localização por par)
+	$(info make stack-up  - sobe Prometheus, Pushgateway, Loki, Alloy e Grafana)
+	$(info make stack-down - derruba a stack (mantém os volumes))
+	$(info make monitor-all    - empurra as métricas de todos os lotes de uma vez)
+	$(info make monitor-replay - empurra mês a mês com pausa, para assistir ao painel)
+	$(info make alerts-test - valida e testa as regras de alerta (promtool da imagem fixada))
+	$(info make bias      - mede justiça por faixa etária e gera os gráficos da etapa 4)
+	$(info make seed-noise - mede o piso de ruído de AUC e KS em cinco sementes)
+	$(info make lint      - roda o ruff (lint + formatação))
+	$(info make test      - roda a suíte de testes (pytest))
+	@exit 0
 
 # Installs the project itself too (src layout), which is what makes
 # `import credit_monitor` work without a PYTHONPATH hack.
@@ -43,19 +61,26 @@ help:
 #
 # O que NÃO entra, de propósito:
 #   - validate-bad-batch, que sai com código != 0 por desenho (o portão
-#     bloqueou o lote) e derrubaria o make;
+#     bloqueou o lote) e derrubaria o make. O lote sujo que ele valida entra,
+#     via dirty-batch: o monitor-all precisa dele;
 #   - publish-reports, o único alvo que toca HTML versionado;
 #   - stack-up e monitor-all, que precisam do Docker de pé — ficam num alvo
 #     próprio para que `make all` funcione sem Docker instalado.
 #
-# Medido num MacBook (Apple Silicon, cache do uv quente): ~7 min e ~1 GB em
-# disco, dos quais 852 MB são o .venv. Com o cache frio some ~2 min no install.
+# Medido num MacBook (Apple Silicon, cache do uv quente), clone limpo: 271 s
+# (~4,5 min) com clone e install, e 967 MB em disco, dos quais 852 MB são o
+# .venv. Com o cache frio some ~2 min no install.
+#
+# A mensagem final vem de all-done, não de um $(info) aqui: o make expande a
+# receita inteira antes de rodar a primeira linha, e um $(info) neste alvo
+# sairia ANTES da cadeia, não depois.
 all:
 	$(MAKE) download
 	$(MAKE) inspect
 	$(MAKE) prepare
 	$(MAKE) train
 	$(MAKE) simulate
+	$(MAKE) dirty-batch
 	$(MAKE) drift-reports
 	$(MAKE) aa-test
 	$(MAKE) bias
@@ -63,9 +88,15 @@ all:
 	$(MAKE) dashboards
 	$(MAKE) lint
 	$(MAKE) test
-	@echo ""
-	@echo "Cadeia completa. Para a observabilidade (precisa de Docker):"
-	@echo "  make stack-up && make monitor-all"
+	@$(MAKE) --no-print-directory all-done
+
+# Uma linha por comando: `a && b` não existe no Windows PowerShell 5.1.
+all-done:
+	$(info )
+	$(info Cadeia completa. Para a observabilidade (precisa de Docker):)
+	$(info make stack-up)
+	$(info make monitor-all)
+	@exit 0
 
 install:
 	uv sync
@@ -95,34 +126,27 @@ test:
 # contrato, mesmo script de ingestão — e só o conteúdo do lote muda. É isso que
 # mostra que o portão discrimina, em vez de simplesmente reprovar tudo.
 #
-# O carimbo de data casa com o nome que scripts/make_dirty_batch.py escreve.
+# O nome do lote (com a data) e a chamada da ingestão ficam no script: a data
+# vinha de `$(shell date +%Y%m%d)`, que no cmd.exe é o comando que TENTA MUDAR
+# a data do sistema e pode parar esperando entrada — e, por ser `:=`, rodava a
+# cada `make`, inclusive nas sub-makes de `make all`.
 # --------------------------------------------------------------------------
-BATCH_STAMP := $(shell date +%Y%m%d)
 
 # Termina com código != 0 DE PROPÓSITO: é o pipeline parando diante de um lote
 # que não pode chegar ao modelo. O `make` reporta "Error 1" logo abaixo, e essa
 # é a demonstração.
 validate-bad-batch:
-	uv run python scripts/make_dirty_batch.py --mode dirty
-	@uv run python -m credit_monitor.pipeline.ingest \
-		data/dirty/batch_$(BATCH_STAMP).parquet ; \
-	status=$$? ; \
-	echo "" ; \
-	echo ">>> ingestão saiu com código $$status — pipeline interrompido, como esperado" ; \
-	echo ">>> quarentena: data/quarantine/batch_$(BATCH_STAMP)/" ; \
-	echo ">>> relatório : reports/validation/batch_$(BATCH_STAMP).html" ; \
-	exit $$status
+	uv run python scripts/make_dirty_batch.py --mode dirty --validate
 
 # Mesmo caminho, lote só com violações de alerta. Tem de sair 0.
 validate-clean-batch:
-	uv run python scripts/make_dirty_batch.py --mode clean
-	@uv run python -m credit_monitor.pipeline.ingest \
-		data/clean/clean_batch_$(BATCH_STAMP).parquet ; \
-	status=$$? ; \
-	echo "" ; \
-	echo ">>> ingestão saiu com código $$status — lote aceito, alertas registrados" ; \
-	echo ">>> relatório : reports/validation/clean_batch_$(BATCH_STAMP).html" ; \
-	exit $$status
+	uv run python scripts/make_dirty_batch.py --mode clean --validate
+
+# Só gera, não valida: sai 0, então cabe no `make all`. É o lote que o
+# monitor-all empurra como o caso bloqueado. Preguiçoso, como o monitor-all
+# (que chama a mesma função se faltar): um lote já em data/dirty é mantido.
+dirty-batch:
+	uv run python scripts/make_dirty_batch.py --if-missing
 
 # --------------------------------------------------------------------------
 # Etapa 1 — preparação do dado e modelo baseline.
@@ -207,13 +231,19 @@ COMPOSE := docker compose -f docker-compose.monitoring.yml
 
 # Grafana em http://localhost:3000, Prometheus em :9090, Pushgateway em :9091,
 # Loki em :3100. Nunca 5000 — no macOS é do AirPlay Receiver.
+# Os endereços vêm de stack-urls, chamado depois do `up`: um $(info) aqui
+# sairia antes do compose (ver all-done).
 stack-up:
 	$(COMPOSE) up -d
-	@echo ""
-	@echo "Grafana     http://localhost:3000  (anônimo, Viewer)"
-	@echo "Prometheus  http://localhost:9090"
-	@echo "Pushgateway http://localhost:9091"
-	@echo "Loki        http://localhost:3100"
+	@$(MAKE) --no-print-directory stack-urls
+
+stack-urls:
+	$(info )
+	$(info Grafana     http://localhost:3000  (anônimo, Viewer))
+	$(info Prometheus  http://localhost:9090)
+	$(info Pushgateway http://localhost:9091)
+	$(info Loki        http://localhost:3100)
+	@exit 0
 
 # Sem -v: os volumes sobrevivem, então a série histórica e os logs continuam lá
 # no próximo `stack-up`. Apagar dado exige o comando explícito.
@@ -223,11 +253,15 @@ stack-down:
 stack-logs:
 	$(COMPOSE) logs --tail=40
 
-# Empurra tudo de uma vez.
+# Empurra tudo de uma vez. Precisa do campeão (make train) e dos lotes (make
+# simulate); o lote sujo, se faltar, é gerado na hora — é o mesmo que
+# `make dirty-batch` deixa em data/dirty.
 monitor-all:
 	uv run python scripts/monitor_push.py --pause 0
 
 # Mês a mês com pausa, para assistir ao painel virando de verde para vermelho.
+# A pausa vai como argumento do make — `make monitor-replay PAUSE=5` —, que
+# funciona em todo shell; `PAUSE=5 make ...` é sintaxe de sh.
 monitor-replay:
 	uv run python scripts/monitor_push.py --pause $(or $(PAUSE),20)
 
@@ -236,11 +270,21 @@ monitor-replay:
 # imagem do Prometheus fixada no compose. Versões diferentes aceitam sintaxes
 # diferentes, e um teste que passa contra outra versão não prova nada.
 #
-# Sem Docker: o binário é baixado para .tools/ (ignorado pelo git), então roda
-# igual na máquina e no CI.
+# scripts/alerts_test.py lê a imagem do próprio compose e roda o promtool de
+# dentro dela (Docker), igual em macOS, Linux, Windows e no CI. Sem Docker, usa
+# um binário em .tools/ — mas só se ele reportar a versão do compose.
 # --------------------------------------------------------------------------
+alerts-test:
+	uv run python scripts/alerts_test.py
+
+# Só Linux e macOS: baixa o binário nativo para .tools/ (ignorado pelo git),
+# para rodar alerts-test sem Docker. Shell POSIX de propósito — no Windows o
+# caminho é o Docker. PROMETHEUS_VERSION tem de casar com o compose; se não
+# casar, alerts-test recusa o binário em vez de testar contra outra versão.
 PROMETHEUS_VERSION := 3.13.3
 PROMTOOL := .tools/promtool
+
+promtool: $(PROMTOOL)
 
 $(PROMTOOL):
 	@mkdir -p .tools
@@ -251,10 +295,6 @@ $(PROMTOOL):
 	  | tar -xz -C /tmp; \
 	cp "/tmp/prometheus-$(PROMETHEUS_VERSION).$$OS-$$ARCH/promtool" $(PROMTOOL); \
 	chmod +x $(PROMTOOL)
-
-alerts-test: $(PROMTOOL)
-	$(PROMTOOL) check rules monitoring/rules/*.rules.yml
-	cd monitoring/rules && ../../$(PROMTOOL) test rules credit_monitor.rules.test.yml
 
 # Dashboards geradas, não escritas à mão: JSON de dashboard é escrito por
 # máquina e lido por ninguém.
