@@ -15,6 +15,17 @@
 # UnicodeEncodeError. No macOS e no Linux o locale já é UTF-8: nada muda.
 export PYTHONUTF8 := 1
 
+# Console em UTF-8 no Windows. O $(info) é o make escrevendo os bytes UTF-8 do
+# Makefile direto no console, e o console do PowerShell está em OEM (cp850 no
+# Windows em português): "anônimo" saía "an├┤nimo" — o ô são os bytes C3 B4,
+# que no cp850 são ├ e ┤. O Python não tem o problema (escreve no console em
+# UTF-16), por isso só o make precisa disto. `chcp.com` existe no System32 e
+# roda igual do cmd e do Git Bash; a saída é descartada na variável. A troca
+# vale para aquele console até ele fechar, o que só afeta texto acentuado.
+ifeq ($(OS),Windows_NT)
+CONSOLE_CODEPAGE := $(shell chcp.com 65001)
+endif
+
 .PHONY: help install download inspect lint test \
         validate-bad-batch validate-clean-batch \
         prepare train recheck-correlation mlflow-ui simulate drift-reports publish-reports aa-test mmd \
@@ -172,7 +183,9 @@ recheck-correlation:
 mlflow-ui:
 	uv run mlflow ui --backend-store-uri sqlite:///mlflow.db --port 5001
 
-# Determinístico: a mesma semente produz os mesmos lotes byte a byte. Depende de
+# Determinístico: a mesma semente produz os mesmos lotes byte a byte na mesma
+# plataforma (as previsões passam pelo XGBoost, que não é bit a bit igual entre
+# plataformas — findings §17). Depende de
 # `make prepare` (para o holdout) e de `make train` (para o alias champion).
 simulate:
 	uv run python scripts/simulate_production.py
