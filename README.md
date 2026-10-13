@@ -20,7 +20,8 @@ anteriores do próprio projeto.
 
 **Ambientes validados:** macOS (Apple Silicon) e Windows 11, os dois por clone
 limpo seguindo só este README. Os números versionados nos relatórios foram
-gerados no macOS.
+gerados no macOS. Como cada validação foi feita, o que achou e o que não foi
+testado: [`docs/validacao.md`](docs/validacao.md).
 
 | | |
 |---|---|

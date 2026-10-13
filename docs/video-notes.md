@@ -314,7 +314,7 @@ argumento de dez segundos contra o painel padrão.
 | **Situation** | 0:30 | 0:30 | Modelo de crédito em produção, 150 mil linhas, 6,68% de inadimplência. A frase-tese, dita já aqui. | — |
 | **Task** | 0:30 | 1:00 | Construir a camada que diz **quando** o modelo parou de servir. Não é treinar melhor, é saber que quebrou. | — |
 | **Action** | 2:30 | 3:30 | Contrato com severidade e portão de ingestão → simulação de seis meses com ablação → relatórios do Evidently. | **D1** (0:20) · **B** (0:35) · **D2** (0:20) · **C** (0:35) · **D** (0:20) · folga 0:20 |
-| **Result** | 1:15 | 4:45 | O 2x2 e a consequência de engenharia. | **D4** + **A** (0:45) · **D3** (0:15) · **D5** (0:15) |
+| **Result** | 1:15 | 4:45 | O 2x2 e a consequência de engenharia. Uma frase de narração: *"Validado por clone limpo em dois sistemas operacionais — e foi o clone limpo que revelou que o monitor dependia de um arquivo deixado por uma execução anterior."* | **D4** + **A** (0:45) · **D3** (0:15) · **D5** (0:15) |
 | **Fecho** | 0:15 | 5:00 | Repetir a frase-tese. Monitoramento por rótulo é obrigatório, não complementar. | — |
 
 **Regras de corte, em ordem** (se estourar):
