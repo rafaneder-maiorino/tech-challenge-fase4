@@ -16,6 +16,47 @@ viés, causalidade e Model Card (etapa 4). Dezessete achados registrados em
 [`docs/findings.md`](docs/findings.md), vários deles refutando decisões
 anteriores do próprio projeto.
 
+## Pré-requisitos e ambiente validado
+
+**Ambientes validados:** macOS (Apple Silicon) e Windows 11, os dois por clone
+limpo seguindo só este README. Os números versionados nos relatórios foram
+gerados no macOS.
+
+| | |
+|---|---|
+| **software** | Git, [uv](https://docs.astral.sh/uv/), Python 3.11 (o `uv` instala se faltar) e `make` — que no Windows não vem por padrão: `winget install ezwinports.make` ([detalhes](#windows)) |
+| **Docker** | Docker Desktop (com WSL2 no Windows), **só para a etapa 3** |
+| **disco** | ≈967 MB de repositório com o `.venv`; ≈2,9 GB de imagens Docker |
+| **tempo** | `make all` em ≈271 s no macOS e ≈280 s no Windows |
+| **rede** | OpenML (dataset) e Docker Hub (imagens). Proxy corporativo pode bloquear os dois |
+| **portas livres** | 3000 (Grafana), 9090 (Prometheus), 9091 (Pushgateway), 3100 (Loki), 12345 (Alloy) e 5001 (MLflow). A 5000 é do AirPlay no macOS — por isso o MLflow usa a 5001 |
+
+### Diferenças entre plataformas
+
+**Depois de `make all` no Windows, sete relatórios aparecem como modificados**
+— os quatro de `reports/fairness/` (`bands.json` e os três PNG),
+`reports/seed_noise.json`, `reports/drift_tests/summary.md` e
+`reports/simulation/summary.md`. **É esperado, não é defeito.**
+
+O XGBoost não é bit a bit idêntico entre plataformas: mesma semente, mesmo
+dado, AUC 0,8561 no macOS contra 0,8553 no Windows. A diferença, 0,0008, é uma
+ordem de grandeza menor que o piso de ruído entre sementes (±0,007) que o
+próprio projeto mediu, e o delta entre os dois modelos se mantém: +0,0071 no
+macOS, +0,0072 no Windows, 5 de 5 vitórias do XGBoost nas duas. **Entre
+plataformas reproduzem as conclusões, não os bytes; dentro da mesma plataforma
+a reprodução é byte a byte.** Achado [§17](docs/findings.md).
+
+`reports/inspection.md` e os três JSON das dashboards não passam pelo modelo e
+**têm de** ficar idênticos em qualquer sistema. Se um deles aparecer
+modificado, aí sim é defeito.
+
+O caso mais sensível da cadeia é o **limiar de operação**: 0,0804 no macOS
+contra 0,0894 no Windows, 11% de diferença. Ele é escolhido no ponto de KS
+máximo, uma região achatada da curva, onde um deslocamento mínimo dos scores
+move bastante o ponto escolhido. As conclusões do capítulo de viés se mantêm
+nas duas plataformas: a faixa 66+ segue a mais prejudicada no mês 6, e a
+calibração piora enquanto paridade demográfica e chances equalizadas melhoram.
+
 ## Caminho do avaliador
 
 **Comece aqui.** `mlruns/` e `data/` são *gitignored*, então **o clone não traz
@@ -120,7 +161,7 @@ da rede; o resto é local.
 > XGBoost não é bit a bit idêntico entre macOS ARM e Windows x64: mesma
 > semente, mesmo dado, AUC 0,8561 contra 0,8553. Os arquivos que passam pelo
 > campeão diferem nas últimas casas, e a diferença (0,0008) é uma ordem de
-> grandeza **menor** que o piso de ruído entre sementes (~0,006) — nenhuma
+> grandeza **menor** que o piso de ruído entre sementes (±0,007) — nenhuma
 > conclusão muda. Os que não passam pelo modelo (`reports/inspection.md` e as
 > dashboards) são idênticos em qualquer plataforma. Achado
 > [§17](docs/findings.md); a checagem no Windows está
@@ -290,6 +331,14 @@ efeito colateral de olhar um relatório. Depois de publicar, confira o diff ante
 de commitar.
 
 ## Stack de observabilidade (etapa 3)
+
+**Sem Docker.** As etapas 1, 2 e 4 rodam inteiras com `make all`, sem Docker.
+Sem a stack, a observabilidade pode ser conferida pelas capturas versionadas em
+[`docs/img/`](docs/img/) (abaixo), por [`docs/metrics.md`](docs/metrics.md) —
+cada métrica com definição, fonte, limiar e como o limiar foi derivado — e
+pelos [runbooks](docs/runbooks/). O que não se vê sem Docker é a stack ao vivo:
+os painéis mudando de cor ao longo dos meses, os alertas disparando e os logs
+chegando ao Loki.
 
 ```bash
 make stack-up               # Prometheus, Pushgateway, Loki, Alloy e Grafana
