@@ -30,6 +30,7 @@ dependencies = [
     "matplotlib>=3.9",
     # Configuration files (thresholds, contract parameters).
     "pyyaml>=6.0",
+    "certifi>=2026.10.19",
 ]
 
 [dependency-groups]
